@@ -8,7 +8,7 @@ const { createPlayer } = require('./player');
 const { createRound, tickRound } = require('./round');
 const { throwBall } = require('./balls');
 const { TRACK } = require('./track');
-const { TICK_RATE, COUNTDOWN_MS, TRACK_LENGTH } = require('./constants');
+const { TICK_RATE, TRACK_LENGTH } = require('./constants');
 
 function createGameServer() {
   const app = express();
@@ -71,11 +71,8 @@ function createGameServer() {
       broadcastLobby();
 
       if (allReady(lobby) && !round) {
-        setTimeout(() => {
-          if (!allReady(lobby) || round) return; // ready state changed during the countdown
-          const players = lobby.players.map((p) => createPlayer(p.id, p.name));
-          round = createRound(players);
-        }, COUNTDOWN_MS);
+        const players = lobby.players.map((p) => createPlayer(p.id, p.name));
+        round = createRound(players);
       }
     });
 

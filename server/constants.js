@@ -11,6 +11,5 @@ module.exports = {
   THROW_SPEED: 500,             // px/sec for a thrown ball
   THROW_RANGE: 400,             // max distance a thrown ball travels before despawning
   HIT_RADIUS: 20,               // px, distance for obstacle/ball collision checks
-  COUNTDOWN_MS: 3000,           // lobby ready -> race start delay
   ROUND_TIME_LIMIT_MS: 90000    // safety-net force-end if nobody finishes or gets eliminated
 };
