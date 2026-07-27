@@ -12,11 +12,11 @@ const { TICK_RATE, COUNTDOWN_MS, TRACK_LENGTH } = require('./constants');
 
 function createGameServer() {
   const app = express();
-  // The client loads the socket.io browser bundle from public/socket.io-client.js
-  // (a copy of socket.io's client-dist/socket.io.js) instead of the default
-  // /socket.io/socket.io.js route, since that route is normally served by
-  // socket.io hooking into the http.Server's 'request' event — a path that
-  // never fires on Vercel's serverless runtime (see handleRequest below).
+  // The client loads the socket.io browser bundle from a CDN (see
+  // public/index.html) instead of the default /socket.io/socket.io.js route,
+  // since that route is normally served by socket.io hooking into the
+  // http.Server's 'request' event — a path that never fires on Vercel's
+  // serverless runtime (see handleRequest below).
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   const server = http.createServer(app);
