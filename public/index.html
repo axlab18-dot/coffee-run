@@ -16,7 +16,15 @@
     <ul id="player-list"></ul>
     <button id="ready-button">Ready</button>
   </div>
-  <canvas id="game-canvas" width="800" height="300" style="display:none;"></canvas>
+  <div id="game-screen" style="display:none;">
+    <canvas id="game-canvas" width="900" height="360"></canvas>
+    <div id="controls-hint">↑ 점프 · ↓ 숙이기 · Space 공 던지기</div>
+    <div id="results-overlay" style="display:none;">
+      <h2>결과</h2>
+      <ol id="results-list"></ol>
+      <p id="results-note">잠시 후 로비로 돌아갑니다...</p>
+    </div>
+  </div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
 </body>

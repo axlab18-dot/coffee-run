@@ -7,7 +7,8 @@ const { createLobby, addPlayer, removePlayer, setReady, allReady } = require('./
 const { createPlayer } = require('./player');
 const { createRound, tickRound } = require('./round');
 const { throwBall } = require('./balls');
-const { TICK_RATE, COUNTDOWN_MS } = require('./constants');
+const { TRACK } = require('./track');
+const { TICK_RATE, COUNTDOWN_MS, TRACK_LENGTH } = require('./constants');
 
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -31,16 +32,22 @@ function broadcastRound() {
       id: p.id,
       name: p.name,
       x: p.x,
+      laneIndex: p.laneIndex,
       action: p.action,
+      hp: p.hp,
       heldBall: p.heldBall,
       finished: p.finished,
-      rank: p.rank || null
+      retired: p.retired,
+      rank: p.rank || null,
+      resultReason: p.resultReason
     })),
     thrownBalls: round.thrownBalls
   });
 }
 
 io.on('connection', (socket) => {
+  socket.emit('track', { ...TRACK, trackLength: TRACK_LENGTH });
+
   socket.on('join', (name) => {
     const safeName = String(name || '').trim().slice(0, 20) || `Player-${socket.id.slice(0, 4)}`;
     addPlayer(lobby, socket.id, safeName);
@@ -96,7 +103,7 @@ setInterval(() => {
         round = null;
         for (const p of lobby.players) p.ready = false;
         broadcastLobby();
-      }, 5000);
+      }, 6000);
     }
   }
 }, 1000 / TICK_RATE);

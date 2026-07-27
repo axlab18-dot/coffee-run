@@ -2,9 +2,10 @@ const {
   HIT_RADIUS,
   THROW_SPEED,
   THROW_RANGE,
-  BIG_BALL_STUN_MS,
-  SMALL_BALL_SLOW_MS
+  BIG_BALL_DAMAGE,
+  SMALL_BALL_DAMAGE
 } = require('./constants');
+const { applyDamage } = require('./health');
 
 function applyBallPickup(player, track) {
   if (player.heldBall) return;
@@ -39,6 +40,7 @@ function tickThrownBalls(balls, dtSeconds, players) {
       (p) =>
         p.id !== ball.ownerId &&
         !p.finished &&
+        !p.retired &&
         p.x >= fromX - HIT_RADIUS &&
         p.x <= toX + HIT_RADIUS
     );
@@ -48,11 +50,7 @@ function tickThrownBalls(balls, dtSeconds, players) {
 
     if (target) {
       if (target.action !== 'ducking') {
-        if (ball.type === 'big') {
-          target.stunMs = BIG_BALL_STUN_MS;
-        } else {
-          target.slowMs = SMALL_BALL_SLOW_MS;
-        }
+        applyDamage(target, ball.type === 'big' ? BIG_BALL_DAMAGE : SMALL_BALL_DAMAGE);
       }
       balls.splice(i, 1); // resolved (hit or dodged), the ball is spent either way
       continue;
@@ -68,6 +66,6 @@ module.exports = {
   applyBallPickup,
   throwBall,
   tickThrownBalls,
-  BIG_BALL_STUN_MS,
-  SMALL_BALL_SLOW_MS
+  BIG_BALL_DAMAGE,
+  SMALL_BALL_DAMAGE
 };

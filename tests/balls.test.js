@@ -5,9 +5,10 @@ const {
   applyBallPickup,
   throwBall,
   tickThrownBalls,
-  BIG_BALL_STUN_MS,
-  SMALL_BALL_SLOW_MS
+  BIG_BALL_DAMAGE,
+  SMALL_BALL_DAMAGE
 } = require('../server/balls');
+const { MAX_HP } = require('../server/constants');
 
 function playerAt(id, x, action = 'running') {
   const p = createPlayer(id, id);
@@ -57,32 +58,40 @@ test('tickThrownBalls advances balls forward and drops out-of-range ones', () =>
   assert.ok(balls[0].x > 0);
 });
 
-test('a big ball hitting a running opponent stuns them, and is removed', () => {
+test('a big ball hitting a running opponent costs BIG_BALL_DAMAGE hp, and is removed', () => {
   const target = playerAt('p2', 520, 'running');
   const balls = [{ ownerId: 'p1', type: 'big', x: 500, traveled: 0 }];
   tickThrownBalls(balls, 0.1, [target]);
-  assert.strictEqual(target.stunMs, BIG_BALL_STUN_MS);
+  assert.strictEqual(target.hp, MAX_HP - BIG_BALL_DAMAGE);
   assert.strictEqual(balls.length, 0);
 });
 
-test('a small ball hitting a running opponent slows them', () => {
+test('a small ball hitting a running opponent costs SMALL_BALL_DAMAGE hp', () => {
   const target = playerAt('p2', 520, 'running');
   const balls = [{ ownerId: 'p1', type: 'small', x: 500, traveled: 0 }];
   tickThrownBalls(balls, 0.1, [target]);
-  assert.strictEqual(target.slowMs, SMALL_BALL_SLOW_MS);
+  assert.strictEqual(target.hp, MAX_HP - SMALL_BALL_DAMAGE);
 });
 
 test('ducking dodges a thrown ball entirely', () => {
   const target = playerAt('p2', 520, 'ducking');
   const balls = [{ ownerId: 'p1', type: 'big', x: 500, traveled: 0 }];
   tickThrownBalls(balls, 0.1, [target]);
-  assert.strictEqual(target.stunMs, 0);
-  assert.strictEqual(target.slowMs, 0);
+  assert.strictEqual(target.hp, MAX_HP);
 });
 
 test('a thrown ball never hits its own owner', () => {
   const owner = playerAt('p1', 500, 'running');
   const balls = [{ ownerId: 'p1', type: 'big', x: 500, traveled: 0 }];
   tickThrownBalls(balls, 0.1, [owner]);
-  assert.strictEqual(owner.stunMs, 0);
+  assert.strictEqual(owner.hp, MAX_HP);
+});
+
+test('hp reaching 0 from a ball hit retires the player', () => {
+  const target = playerAt('p2', 500, 'running');
+  target.hp = 2;
+  const balls = [{ ownerId: 'p1', type: 'big', x: 500, traveled: 0 }];
+  tickThrownBalls(balls, 0.1, [target]);
+  assert.strictEqual(target.hp, 0);
+  assert.strictEqual(target.retired, true);
 });

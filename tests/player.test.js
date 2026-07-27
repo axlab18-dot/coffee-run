@@ -1,40 +1,25 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const { createPlayer, tickPlayerMovement } = require('../server/player');
-const { BASE_SPEED, SLOWED_SPEED } = require('../server/constants');
+const { BASE_SPEED, MAX_HP } = require('../server/constants');
 
-test('createPlayer starts at x=0 with no timers or held ball', () => {
+test('createPlayer starts at x=0 with full hp and no held ball', () => {
   const p = createPlayer('p1', 'Alice');
   assert.strictEqual(p.id, 'p1');
   assert.strictEqual(p.name, 'Alice');
   assert.strictEqual(p.x, 0);
   assert.strictEqual(p.action, 'running');
-  assert.strictEqual(p.stunMs, 0);
-  assert.strictEqual(p.slowMs, 0);
+  assert.strictEqual(p.hp, MAX_HP);
   assert.strictEqual(p.heldBall, null);
   assert.strictEqual(p.finished, false);
+  assert.strictEqual(p.retired, false);
+  assert.strictEqual(p.rank, null);
 });
 
-test('tickPlayerMovement advances x at BASE_SPEED when not stunned or slowed', () => {
+test('tickPlayerMovement always advances x at BASE_SPEED (no more time-based slow/stun)', () => {
   const p = createPlayer('p1', 'Alice');
   tickPlayerMovement(p, 1.0, { jumping: false, ducking: false });
   assert.strictEqual(p.x, BASE_SPEED);
-});
-
-test('tickPlayerMovement advances x at SLOWED_SPEED while slowMs > 0', () => {
-  const p = createPlayer('p1', 'Alice');
-  p.slowMs = 1000;
-  tickPlayerMovement(p, 1.0, { jumping: false, ducking: false });
-  assert.strictEqual(p.x, SLOWED_SPEED);
-  assert.strictEqual(p.slowMs, 0);
-});
-
-test('tickPlayerMovement does not advance x while stunMs > 0, and counts it down', () => {
-  const p = createPlayer('p1', 'Alice');
-  p.stunMs = 500;
-  tickPlayerMovement(p, 1.0, { jumping: false, ducking: false });
-  assert.strictEqual(p.x, 0);
-  assert.strictEqual(p.stunMs, 0);
 });
 
 test('tickPlayerMovement sets action to jumping or ducking based on input', () => {
@@ -47,9 +32,16 @@ test('tickPlayerMovement sets action to jumping or ducking based on input', () =
   assert.strictEqual(p.action, 'running');
 });
 
-test('finished players do not move even without stun or slow', () => {
+test('finished players do not move', () => {
   const p = createPlayer('p1', 'Alice');
   p.finished = true;
+  tickPlayerMovement(p, 1.0, { jumping: false, ducking: false });
+  assert.strictEqual(p.x, 0);
+});
+
+test('retired players do not move', () => {
+  const p = createPlayer('p1', 'Alice');
+  p.retired = true;
   tickPlayerMovement(p, 1.0, { jumping: false, ducking: false });
   assert.strictEqual(p.x, 0);
 });
