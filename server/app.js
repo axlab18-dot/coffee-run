@@ -14,6 +14,14 @@ function createGameServer() {
   const app = express();
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
+  // Socket.io normally serves its client bundle itself when a real
+  // http.Server's 'request' event fires, but on Vercel we never trigger that
+  // path (see handleRequest below), so serve the bundle as a static asset.
+  // socket.io's package.json "exports" map blocks resolving the client-dist
+  // subpath directly, so we locate it relative to the package's own root.
+  const socketIoPackageDir = path.join(path.dirname(require.resolve('socket.io')), '..');
+  const serveSocketIoClient = express.static(path.join(socketIoPackageDir, 'client-dist'));
+
   const server = http.createServer(app);
   const io = new Server(server, {
     // Vercel's serverless runtime does not support persistent WebSocket
@@ -121,7 +129,9 @@ function createGameServer() {
   // here: anything under socket.io's path goes to its engine, everything
   // else goes to Express.
   function handleRequest(req, res) {
-    if (req.url && req.url.startsWith('/socket.io/')) {
+    if (req.url && req.url.startsWith('/socket.io/socket.io.js')) {
+      serveSocketIoClient(req, res, () => io.engine.handleRequest(req, res));
+    } else if (req.url && req.url.startsWith('/socket.io/')) {
       io.engine.handleRequest(req, res);
     } else {
       app(req, res);
