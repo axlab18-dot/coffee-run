@@ -12,5 +12,5 @@ if (!global.__seonGameServer) {
 }
 
 module.exports = (req, res) => {
-  global.__seonGameServer.app(req, res);
+  global.__seonGameServer.handleRequest(req, res);
 };

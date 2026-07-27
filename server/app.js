@@ -114,7 +114,21 @@ function createGameServer() {
     }
   }, 1000 / TICK_RATE);
 
-  return { app, server, io };
+  // In a normal long-running process, socket.io hooks into `server`'s own
+  // 'request'/'upgrade' events once `server.listen()` runs. Serverless
+  // platforms like Vercel never fire those events — they invoke an exported
+  // handler function directly per request — so we replicate that routing
+  // here: anything under socket.io's path goes to its engine, everything
+  // else goes to Express.
+  function handleRequest(req, res) {
+    if (req.url && req.url.startsWith('/socket.io/')) {
+      io.engine.handleRequest(req, res);
+    } else {
+      app(req, res);
+    }
+  }
+
+  return { app, server, io, handleRequest };
 }
 
 module.exports = { createGameServer };
