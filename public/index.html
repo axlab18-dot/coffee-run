@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>SEON Battle Ball</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="name-entry">
+    <h1>SEON Battle Ball</h1>
+    <input id="name-input" type="text" placeholder="닉네임을 입력하세요" maxlength="20" />
+    <button id="join-button">Join</button>
+  </div>
+  <div id="lobby" style="display:none;">
+    <h1>SEON Battle Ball</h1>
+    <ul id="player-list"></ul>
+    <button id="ready-button">Ready</button>
+  </div>
+  <canvas id="game-canvas" width="800" height="300" style="display:none;"></canvas>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

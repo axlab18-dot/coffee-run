@@ -1,0 +1,32 @@
+body {
+  font-family: sans-serif;
+  background: #222;
+  color: #eee;
+  text-align: center;
+}
+
+#player-list {
+  list-style: none;
+  padding: 0;
+}
+
+#player-list li.ready {
+  color: #4caf50;
+}
+
+#game-canvas {
+  background: #87ceeb;
+  margin-top: 20px;
+  border: 2px solid #444;
+}
+
+#ready-button, #join-button {
+  font-size: 1.2em;
+  padding: 8px 24px;
+}
+
+#name-input {
+  font-size: 1.1em;
+  padding: 6px 10px;
+  margin-right: 8px;
+}
