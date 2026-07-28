@@ -27,7 +27,6 @@ let latestReceivedAt = 0;
 // Purely visual — never affects hit detection, which is server-authoritative.
 const animState = new Map();
 
-const PLAYER_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00897b'];
 const RESULT_LABELS = {
   arrived: '완주',
   survivor: '최종 생존',
@@ -147,39 +146,40 @@ function renderFrame() {
 }
 
 function render(state, now) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const scale = canvas.width / track.trackLength;
   const laneHeight = canvas.height / state.players.length;
 
-  // Lane dividers, ground lines, and a light texture tick every ~40px
+  // Lane dividers, ground lines, and a dashed ground texture (like the
+  // dino-game's dotted horizon line)
   state.players.forEach((player, i) => {
     const laneTop = i * laneHeight;
     const groundY = laneTop + laneHeight - 20;
 
-    ctx.strokeStyle = '#e2e2e2';
-    ctx.beginPath();
-    ctx.moveTo(0, laneTop);
-    ctx.lineTo(canvas.width, laneTop);
-    ctx.stroke();
+    if (i > 0) {
+      ctx.strokeStyle = '#cccccc';
+      ctx.beginPath();
+      ctx.moveTo(0, laneTop);
+      ctx.lineTo(canvas.width, laneTop);
+      ctx.stroke();
+    }
 
-    ctx.strokeStyle = '#535353';
+    ctx.strokeStyle = '#000000';
     ctx.beginPath();
     ctx.moveTo(0, groundY);
     ctx.lineTo(canvas.width, groundY);
     ctx.stroke();
 
-    ctx.strokeStyle = '#c9c9c9';
-    for (let tx = 0; tx < canvas.width; tx += 40) {
-      ctx.beginPath();
-      ctx.moveTo(tx, groundY + 2);
-      ctx.lineTo(tx + 14, groundY + 2);
-      ctx.stroke();
+    ctx.fillStyle = '#000000';
+    for (let tx = 0; tx < canvas.width; tx += 20) {
+      ctx.fillRect(tx, groundY + 3, 8, 2);
     }
   });
 
   // Finish line
-  ctx.strokeStyle = '#202020';
+  ctx.strokeStyle = '#000000';
   ctx.setLineDash([6, 6]);
   ctx.beginPath();
   ctx.moveTo(canvas.width - 2, 0);
@@ -191,16 +191,17 @@ function render(state, now) {
   for (const obstacle of track.obstacles) {
     const x = obstacle.x * scale;
     if (obstacle.type === 'pit') {
-      ctx.fillStyle = '#c9c9c9';
+      ctx.clearRect(x - 10, 0, 20, canvas.height);
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(x - 10, 0, 20, canvas.height);
     } else {
-      drawCactus(x, canvas.height, obstacle.type === 'rock' ? 34 : 22);
+      drawCactus(x, canvas.height, obstacle.type === 'rock' ? 34 : 20);
     }
   }
 
   // Ball spawn markers
   for (const spawn of track.ballSpawns) {
-    ctx.fillStyle = '#f4b400';
+    ctx.fillStyle = '#000000';
     ctx.beginPath();
     ctx.arc(spawn.x * scale, canvas.height - 30, spawn.type === 'big' ? 6 : 3, 0, Math.PI * 2);
     ctx.fill();
@@ -210,50 +211,37 @@ function render(state, now) {
   state.players.forEach((player, i) => {
     const laneTop = i * laneHeight;
     const groundY = laneTop + laneHeight - 20;
-    const color = PLAYER_COLORS[player.laneIndex % PLAYER_COLORS.length];
     const x = player.x * scale;
 
     const arc = player.action === 'jumping' ? jumpArcOffset(player.id, now) : 0;
     const isDucking = player.action === 'ducking' && arc === 0;
-    const bodyHeight = isDucking ? 14 : 24;
-    let bodyY = groundY - arc;
-    if (isDucking) bodyY -= 4;
-
-    // Subtle running bob so a moving, non-jumping racer doesn't look static
     const isActive = !player.retired && !player.finished;
-    const bob =
-      isActive && arc === 0 && !isDucking ? Math.sin(now / 90 + player.laneIndex) * 1.5 : 0;
+    const stride = isActive && arc === 0 && !isDucking && Math.sin(now / 90 + player.laneIndex) > 0;
 
-    ctx.fillStyle = player.retired ? '#bbb' : color;
-    ctx.fillRect(x, bodyY - 24 + bob, 18, bodyHeight);
+    drawDino(x, groundY - arc, { ducking: isDucking, stride, dim: player.retired });
 
-    // Two alternating "leg" ticks under the body while running, for a stride feel
-    if (isActive && arc === 0 && !isDucking) {
-      const strideOffset = Math.sin(now / 90 + player.laneIndex) > 0 ? 3 : -3;
-      ctx.fillStyle = player.retired ? '#bbb' : color;
-      ctx.fillRect(x + 3 + strideOffset, groundY - 2, 4, 4);
-      ctx.fillRect(x + 11 - strideOffset, groundY - 2, 4, 4);
-    }
-
-    // HP bar
-    const hpBarWidth = 60;
+    // HP bar: a row of small pixel blocks, like a retro health meter
     const hpBarX = 6;
     const hpBarY = laneTop + 6;
-    ctx.fillStyle = '#ddd';
-    ctx.fillRect(hpBarX, hpBarY, hpBarWidth, 6);
-    ctx.fillStyle = player.hp > 3 ? '#43a047' : '#e53935';
-    ctx.fillRect(hpBarX, hpBarY, hpBarWidth * Math.max(0, player.hp / 10), 6);
+    for (let h = 0; h < 10; h++) {
+      ctx.strokeStyle = '#000000';
+      ctx.strokeRect(hpBarX + h * 7, hpBarY, 5, 8);
+      if (h < player.hp) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(hpBarX + h * 7, hpBarY, 5, 8);
+      }
+    }
 
-    ctx.fillStyle = '#202020';
-    ctx.font = '11px monospace';
-    ctx.fillText(`${player.name} (${player.hp})`, hpBarX, hpBarY + 18);
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(player.name, hpBarX, hpBarY + 22);
 
     if (player.retired) {
-      ctx.fillStyle = '#e53935';
-      ctx.fillText('OUT', x, bodyY - 30);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('OUT', x, groundY - 46);
     } else if (player.finished) {
-      ctx.fillStyle = '#202020';
-      ctx.fillText(`#${player.rank}`, x, bodyY - 30);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(`#${player.rank}`, x, groundY - 46);
     }
   });
 
@@ -261,17 +249,53 @@ function render(state, now) {
   for (const ball of state.thrownBalls) {
     const owner = state.players.find((p) => p.id === ball.ownerId);
     const laneTop = (owner ? owner.laneIndex : 0) * laneHeight;
-    ctx.fillStyle = '#333';
+    ctx.fillStyle = '#000000';
     ctx.beginPath();
     ctx.arc(ball.x * scale, laneTop + laneHeight - 30, ball.type === 'big' ? 8 : 4, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
+// A blocky pixel-art silhouette in the style of the Chrome dino-game runner,
+// built from filled rectangles rather than an image asset.
+function drawDino(x, groundY, { ducking, stride, dim }) {
+  ctx.fillStyle = dim ? '#bbbbbb' : '#000000';
+
+  if (ducking) {
+    // Low, elongated pose (matches the dino game's duck sprite)
+    ctx.fillRect(x - 4, groundY - 14, 26, 12);
+    ctx.fillRect(x + 18, groundY - 20, 8, 8); // head
+    ctx.fillRect(x - 4, groundY - 2, 6, 2);
+    ctx.fillRect(x + 12, groundY - 2, 6, 2);
+  } else {
+    // Body
+    ctx.fillRect(x, groundY - 26, 14, 18);
+    // Head
+    ctx.fillRect(x + 8, groundY - 34, 12, 12);
+    // Snout
+    ctx.fillRect(x + 18, groundY - 30, 6, 5);
+    // Tail
+    ctx.fillRect(x - 6, groundY - 20, 8, 6);
+    // Legs (alternate for a running stride)
+    if (stride) {
+      ctx.fillRect(x, groundY - 8, 5, 8);
+      ctx.fillRect(x + 9, groundY - 4, 5, 4);
+    } else {
+      ctx.fillRect(x, groundY - 4, 5, 4);
+      ctx.fillRect(x + 9, groundY - 8, 5, 8);
+    }
+    // Eye (white pixel cut into the head)
+    if (!dim) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + 16, groundY - 32, 2, 2);
+    }
+  }
+}
+
 // A two-spike cactus silhouette, closer to the classic dino-game obstacle
 // than a single triangle.
 function drawCactus(x, baseY, height) {
-  ctx.fillStyle = '#5b7a4a';
+  ctx.fillStyle = '#000000';
   ctx.fillRect(x - 4, baseY - height, 8, height);
   ctx.fillRect(x - 9, baseY - height * 0.55, 6, height * 0.3);
   ctx.fillRect(x + 3, baseY - height * 0.75, 6, height * 0.3);

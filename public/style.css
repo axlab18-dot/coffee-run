@@ -1,14 +1,14 @@
 body {
   font-family: 'Courier New', monospace;
-  background: #f7f7f7;
-  color: #535353;
+  background: #ffffff;
+  color: #000000;
   text-align: center;
   margin: 0;
   padding: 20px;
 }
 
 h1, h2 {
-  color: #202020;
+  color: #000000;
   letter-spacing: 1px;
 }
 
@@ -21,11 +21,14 @@ h1, h2 {
 
 #player-list li {
   padding: 4px 0;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid #000000;
+}
+
+#player-list li.ready::before {
+  content: '> ';
 }
 
 #player-list li.ready {
-  color: #2e8b2e;
   font-weight: bold;
 }
 
@@ -33,14 +36,15 @@ h1, h2 {
   font-family: inherit;
   font-size: 1.1em;
   padding: 8px 24px;
-  background: #535353;
-  color: #f7f7f7;
-  border: none;
+  background: #ffffff;
+  color: #000000;
+  border: 2px solid #000000;
   cursor: pointer;
 }
 
 #ready-button:hover, #join-button:hover {
-  background: #202020;
+  background: #000000;
+  color: #ffffff;
 }
 
 #name-input {
@@ -48,7 +52,7 @@ h1, h2 {
   font-size: 1.1em;
   padding: 6px 10px;
   margin-right: 8px;
-  border: 2px solid #535353;
+  border: 2px solid #000000;
 }
 
 #game-screen {
@@ -58,15 +62,15 @@ h1, h2 {
 }
 
 #game-canvas {
-  background: #f7f7f7;
-  border-bottom: 2px solid #535353;
+  background: #ffffff;
+  border-bottom: 2px solid #000000;
   display: block;
   margin: 0 auto;
 }
 
 #controls-hint {
   font-size: 0.85em;
-  color: #999;
+  color: #666666;
   margin-top: 8px;
 }
 
@@ -76,11 +80,12 @@ h1, h2 {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(247, 247, 247, 0.96);
+  background: rgba(255, 255, 255, 0.97);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  border: 2px solid #000000;
 }
 
 #results-list {
@@ -92,10 +97,10 @@ h1, h2 {
 #results-list li {
   font-size: 1.1em;
   padding: 6px 0;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid #000000;
 }
 
 #results-note {
-  color: #999;
+  color: #666666;
   font-size: 0.85em;
 }
