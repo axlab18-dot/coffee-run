@@ -5,10 +5,9 @@ const { Server } = require('socket.io');
 
 const { createLobby, addPlayer, removePlayer, setReady, allReady } = require('./lobby');
 const { createPlayer } = require('./player');
-const { createRound, tickRound } = require('./round');
-const { throwBall } = require('./balls');
-const { TRACK } = require('./track');
-const { TICK_RATE, TRACK_LENGTH } = require('./constants');
+const { createRound, tickRound, resolveGacha, startDiceSpin } = require('./round');
+const { useHeldItem } = require('./effects');
+const { TICK_RATE } = require('./constants');
 
 function createGameServer() {
   const app = express();
@@ -28,41 +27,54 @@ function createGameServer() {
   });
 
   const lobby = createLobby();
-  const inputsByPlayerId = {};
   let round = null;
 
   function broadcastLobby() {
     io.emit('lobby-state', lobby);
   }
 
+  // Each socket gets its own view of the round: a player's own gacha options
+  // and held item are private, so opponents only see that they're "picking"
+  // or that they're holding *something* — never the specific cards. The dice
+  // event has no strategic content (pure luck), so it's shown to everyone.
+  function buildRoundStateFor(viewerId) {
+    return {
+      phase: round.phase,
+      track: round.track,
+      diceActive: round.diceEvent.triggered,
+      players: round.players.map((p) => {
+        const isViewer = p.id === viewerId;
+        return {
+          id: p.id,
+          name: p.name,
+          x: p.x,
+          laneIndex: p.laneIndex,
+          checkpointsDone: p.checkpointsDone,
+          gachaState: isViewer ? p.gachaState : p.gachaState ? { picking: true } : null,
+          heldItem: isViewer ? p.heldItem : null,
+          hasItem: !!p.heldItem,
+          diceState: p.diceState,
+          diceResult: p.diceResult,
+          finished: p.finished,
+          rank: p.rank || null,
+          resultReason: p.resultReason,
+          guaranteedRank: p.guaranteedRank
+        };
+      })
+    };
+  }
+
   function broadcastRound() {
     if (!round) return;
-    io.emit('round-state', {
-      phase: round.phase,
-      players: round.players.map((p) => ({
-        id: p.id,
-        name: p.name,
-        x: p.x,
-        laneIndex: p.laneIndex,
-        action: p.action,
-        hp: p.hp,
-        heldBall: p.heldBall,
-        finished: p.finished,
-        retired: p.retired,
-        rank: p.rank || null,
-        resultReason: p.resultReason
-      })),
-      thrownBalls: round.thrownBalls
-    });
+    for (const [id, socket] of io.sockets.sockets) {
+      socket.emit('round-state', buildRoundStateFor(id));
+    }
   }
 
   io.on('connection', (socket) => {
-    socket.emit('track', { ...TRACK, trackLength: TRACK_LENGTH });
-
     socket.on('join', (name) => {
       const safeName = String(name || '').trim().slice(0, 20) || `Player-${socket.id.slice(0, 4)}`;
       addPlayer(lobby, socket.id, safeName);
-      inputsByPlayerId[socket.id] = { jumping: false, ducking: false };
       broadcastLobby();
     });
 
@@ -73,27 +85,34 @@ function createGameServer() {
       if (allReady(lobby) && !round) {
         const players = lobby.players.map((p) => createPlayer(p.id, p.name));
         round = createRound(players);
+        io.emit('track', round.track);
       }
     });
 
-    socket.on('input', (input) => {
-      inputsByPlayerId[socket.id] = {
-        jumping: !!input.jumping,
-        ducking: !!input.ducking
-      };
-    });
-
-    socket.on('throw', () => {
+    socket.on('gacha-pick', (optionIndex) => {
       if (!round) return;
       const player = round.players.find((p) => p.id === socket.id);
-      if (!player) return;
-      const thrown = throwBall(player);
-      if (thrown) round.thrownBalls.push(thrown);
+      if (!player || !player.gachaState) return;
+      const index = Number(optionIndex);
+      if (!Number.isInteger(index) || index < 0 || index >= player.gachaState.options.length) return;
+      resolveGacha(round, player, index);
+    });
+
+    socket.on('use-item', () => {
+      if (!round) return;
+      const player = round.players.find((p) => p.id === socket.id);
+      if (!player || player.finished) return;
+      // Space is dual-purpose: it starts the dice spin when one is awaiting
+      // a roll, otherwise it triggers a held item.
+      if (player.diceState && !player.diceState.spinning) {
+        startDiceSpin(player);
+      } else {
+        useHeldItem(round, player);
+      }
     });
 
     socket.on('disconnect', () => {
       removePlayer(lobby, socket.id);
-      delete inputsByPlayerId[socket.id];
       if (round) {
         round.players = round.players.filter((p) => p.id !== socket.id);
       }
@@ -104,7 +123,7 @@ function createGameServer() {
   const dt = 1 / TICK_RATE;
   setInterval(() => {
     if (round) {
-      tickRound(round, dt, inputsByPlayerId);
+      tickRound(round, dt);
       broadcastRound();
       if (round.phase === 'finished') {
         setTimeout(() => {

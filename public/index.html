@@ -2,23 +2,39 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <title>SEON Battle Ball</title>
+  <title>Coffee Run</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="name-entry">
-    <h1>SEON Battle Ball</h1>
+    <h1>Coffee Run</h1>
     <input id="name-input" type="text" placeholder="닉네임을 입력하세요" maxlength="20" />
     <button id="join-button">Join</button>
   </div>
   <div id="lobby" style="display:none;">
-    <h1>SEON Battle Ball</h1>
+    <h1>Coffee Run</h1>
     <ul id="player-list"></ul>
     <button id="ready-button">Ready</button>
+    <div class="controls-hint">1 / 2 / 3 뽑기 선택 · Space 아이템 사용 / 주사위 굴리기</div>
   </div>
   <div id="game-screen" style="display:none;">
-    <canvas id="game-canvas" width="900" height="360"></canvas>
-    <div id="controls-hint">↑ 점프 · ↓ 숙이기 · Space 공 던지기</div>
+    <canvas id="game-canvas" width="1400" height="360"></canvas>
+    <div class="controls-hint">1 / 2 / 3 뽑기 선택 · Space 아이템 사용 / 주사위 굴리기</div>
+    <div id="item-badge" style="display:none;"></div>
+    <div id="gacha-overlay" style="display:none;">
+      <h2>뽑기! (<span id="gacha-timer">5</span>초)</h2>
+      <div id="gacha-timer-bar-track"><div id="gacha-timer-bar"></div></div>
+      <div id="gacha-cards">
+        <button id="gacha-card-0" class="gacha-card"></button>
+        <button id="gacha-card-1" class="gacha-card"></button>
+        <button id="gacha-card-2" class="gacha-card"></button>
+      </div>
+    </div>
+    <div id="dice-overlay" style="display:none;">
+      <h2>막판 스퍼트!</h2>
+      <button id="dice-face">?</button>
+      <p id="dice-hint">Space (또는 클릭)로 주사위를 굴리세요</p>
+    </div>
     <div id="results-overlay" style="display:none;">
       <h2>결과</h2>
       <ol id="results-list"></ol>

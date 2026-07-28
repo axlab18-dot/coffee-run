@@ -56,7 +56,7 @@ h1, h2 {
 }
 
 #game-screen {
-  max-width: 900px;
+  max-width: 1400px;
   margin: 0 auto;
   position: relative;
 }
@@ -66,9 +66,11 @@ h1, h2 {
   border-bottom: 2px solid #000000;
   display: block;
   margin: 0 auto;
+  max-width: 100%;
+  height: auto;
 }
 
-#controls-hint {
+.controls-hint {
   font-size: 0.85em;
   color: #666666;
   margin-top: 8px;
@@ -101,6 +103,153 @@ h1, h2 {
 }
 
 #results-note {
+  color: #666666;
+  font-size: 0.85em;
+}
+
+#item-badge {
+  margin-top: 8px;
+  font-size: 1em;
+  font-weight: bold;
+  color: #7a3d00;
+  background: #ffe4b3;
+  border: 3px solid #ff8800;
+  border-radius: 6px;
+  display: inline-block;
+  padding: 6px 16px;
+  box-shadow: 0 0 10px rgba(255, 136, 0, 0.6);
+  animation: item-glow 1s ease-in-out infinite;
+}
+
+@keyframes item-glow {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 136, 0, 0.4); }
+  50% { box-shadow: 0 0 16px rgba(255, 136, 0, 0.9); }
+}
+
+/* Unlike the dice/results overlays, the gacha panel sits below the canvas in
+   normal document flow — the race keeps running and stays visible while
+   you're picking. */
+#gacha-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #000000;
+  border-top: 3px double #000000;
+  margin-top: 10px;
+  padding: 12px 0 16px;
+  background: #ffffff;
+}
+
+#gacha-timer-bar-track {
+  width: 260px;
+  height: 10px;
+  border: 2px solid #000000;
+  margin: 4px 0 16px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+#gacha-timer-bar {
+  height: 100%;
+  width: 100%;
+  background: #000000;
+  transition: width 0.05s linear, background 0.2s linear;
+}
+
+#gacha-timer-bar.urgent {
+  background: #cc2222;
+}
+
+#gacha-cards {
+  display: flex;
+  gap: 12px;
+}
+
+.gacha-card {
+  font-family: inherit;
+  width: 180px;
+  min-height: 110px;
+  background: #ffffff;
+  color: #000000;
+  border: 2px solid #000000;
+  cursor: pointer;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.gacha-card:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.gacha-card.passive {
+  background: #eaf3ff;
+  border-color: #2b5fa8;
+}
+
+.gacha-card.passive:hover {
+  background: #2b5fa8;
+  color: #ffffff;
+}
+
+.gacha-card.item {
+  background: #fff3e0;
+  border-color: #ff8800;
+}
+
+.gacha-card.item:hover {
+  background: #ff8800;
+  color: #ffffff;
+}
+
+.gacha-card .card-tier {
+  font-weight: bold;
+  font-size: 0.85em;
+  letter-spacing: 1px;
+}
+
+.gacha-card .card-label {
+  font-size: 0.95em;
+  line-height: 1.3;
+}
+
+#dice-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.97);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #000000;
+  gap: 10px;
+}
+
+#dice-face {
+  font-family: inherit;
+  width: 90px;
+  height: 90px;
+  font-size: 2.2em;
+  font-weight: bold;
+  background: #ffffff;
+  color: #000000;
+  border: 2px solid #000000;
+  cursor: pointer;
+}
+
+#dice-face:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+#dice-hint {
   color: #666666;
   font-size: 0.85em;
 }
