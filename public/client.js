@@ -6,6 +6,7 @@ const joinButton = document.getElementById('join-button');
 const lobbyEl = document.getElementById('lobby');
 const playerListEl = document.getElementById('player-list');
 const readyButton = document.getElementById('ready-button');
+const addBotButton = document.getElementById('add-bot-button');
 const gameScreenEl = document.getElementById('game-screen');
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -75,12 +76,23 @@ readyButton.addEventListener('click', () => {
   readyButton.textContent = isReady ? 'Cancel' : 'Ready';
 });
 
+addBotButton.addEventListener('click', () => {
+  socket.emit('add-bot');
+});
+
 socket.on('lobby-state', (lobby) => {
   playerListEl.innerHTML = '';
   for (const player of lobby.players) {
     const li = document.createElement('li');
-    li.textContent = player.name;
+    li.textContent = player.isBot ? `🤖 ${player.name}` : player.name;
     if (player.ready) li.classList.add('ready');
+    if (player.isBot) {
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '제거';
+      removeBtn.className = 'remove-bot-button';
+      removeBtn.addEventListener('click', () => socket.emit('remove-bot', player.id));
+      li.appendChild(removeBtn);
+    }
     playerListEl.appendChild(li);
   }
 
@@ -95,8 +107,16 @@ socket.on('lobby-state', (lobby) => {
     readyButton.textContent = 'Ready';
     prevState = null;
     latestState = null;
+    finishAnnouncements = [];
+    announcedFinishIds.clear();
   }
 });
+
+// The instant a player crosses the finish line, their rank gets a large,
+// fading banner across the whole track background, in finish order.
+const FINISH_ANNOUNCE_MS = 2200;
+let finishAnnouncements = [];
+const announcedFinishIds = new Set();
 
 socket.on('round-state', (state) => {
   lobbyEl.style.display = 'none';
@@ -107,6 +127,18 @@ socket.on('round-state', (state) => {
   prevState = latestState || state;
   latestState = state;
   latestReceivedAt = performance.now();
+
+  for (const player of state.players) {
+    if (player.finished && player.rank && !announcedFinishIds.has(player.id)) {
+      announcedFinishIds.add(player.id);
+      finishAnnouncements.push({
+        rank: player.rank,
+        name: player.name,
+        color: playerColor(player),
+        startedAt: performance.now()
+      });
+    }
+  }
 
   updateGachaOverlay(state);
   updateItemBadge(state);
@@ -150,7 +182,7 @@ function updateItemBadge(state) {
   const me = myPlayer(state);
   if (me && me.heldItem) {
     itemBadgeEl.style.display = 'block';
-    itemBadgeEl.textContent = `★ 보유 아이템: ${me.heldItem.label} — Space로 사용!`;
+    itemBadgeEl.textContent = `★ 보유 아이템: ${me.heldItem.label} — Space 또는 탭으로 사용!`;
   } else {
     itemBadgeEl.style.display = 'none';
   }
@@ -173,13 +205,19 @@ function updateDiceOverlay(state) {
   }
 }
 
+function formatFinishTime(ms) {
+  if (typeof ms !== 'number') return '';
+  return `${(ms / 1000).toFixed(2)}초`;
+}
+
 function showResults(players) {
   const sorted = [...players].sort((a, b) => (a.rank || 999) - (b.rank || 999));
   resultsListEl.innerHTML = '';
   for (const player of sorted) {
     const li = document.createElement('li');
     const label = RESULT_LABELS[player.resultReason] || '';
-    li.textContent = `#${player.rank} ${player.name} — ${label}`;
+    const time = formatFinishTime(player.finishTimeMs);
+    li.textContent = `#${player.rank} ${player.name} — ${label}${time ? ` (${time})` : ''}`;
     resultsListEl.appendChild(li);
   }
   resultsOverlayEl.style.display = 'flex';
@@ -207,6 +245,20 @@ function renderFrame() {
   render({ ...latestState, players: interpolated }, now);
 }
 
+// Mirrors server/track.js's TRACKS (id/label/color/speedMultiplier) — kept as
+// a small local copy since the client has no module loader to share it with
+// the server. speedMultiplier is only used as a nominal baseline to detect
+// accel/decel for the trail/tint effects below, not for any real physics.
+const TRACK_INFO = {
+  1: { label: '보통길', color: '#e8c93a', speedMultiplier: 1.2 },
+  2: { label: '풀밭', color: '#2e8b57', speedMultiplier: 2 },
+  3: { label: '불바다', color: '#c0392b', speedMultiplier: 2.5 },
+  4: { label: '빙판', color: '#3b82c4', speedMultiplier: 3.5 },
+  5: { label: '가시밭', color: '#1a1a1a', speedMultiplier: 0.8 }
+};
+const BASE_SPEED = 200;
+const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
 function render(state, now) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -214,6 +266,27 @@ function render(state, now) {
   const scale = canvas.width / track.trackLength;
   const numLanes = state.players.length;
   const laneHeight = canvas.height / numLanes;
+
+  // Track color bands: one per segment, tinted so lane lines/dashes/players
+  // still read clearly on top. segmentTracks can change mid-round (items
+  // like 방화범/미끌미끌/거대화), so this always reflects the live assignment.
+  if (track.segmentTracks && track.checkpoints) {
+    const segmentTracks = track.segmentTracks;
+    for (let i = 0; i < segmentTracks.length; i++) {
+      const info = TRACK_INFO[segmentTracks[i]];
+      if (!info) continue;
+      const startX = track.checkpoints[i] * scale;
+      const endX = (track.checkpoints[i + 1] ?? track.trackLength) * scale;
+      ctx.fillStyle = info.color;
+      ctx.globalAlpha = 0.18;
+      ctx.fillRect(startX, 0, endX - startX, canvas.height);
+      ctx.globalAlpha = 1;
+
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle = info.color;
+      ctx.fillText(info.label, startX + 4, 12);
+    }
+  }
 
   // Lane backgrounds are drawn per row slot (0..numLanes-1), independent of
   // player order — a player's row is decided by their own laneIndex below,
@@ -288,6 +361,35 @@ function render(state, now) {
       ctx.lineWidth = 1;
     }
 
+    // Nominal speed for this player's current segment, used only to detect
+    // "currently faster/slower than the track's own base rate" for the
+    // accel trail / decel tint below (표현 spec) — not real physics.
+    const segmentIndex = Math.min(5, Math.max(1, player.checkpointsDone || 1)) - 1;
+    const nominalTrackId = track.segmentTracks && track.segmentTracks[segmentIndex];
+    const nominalInfo = nominalTrackId && TRACK_INFO[nominalTrackId];
+    const nominalSpeed = nominalInfo ? BASE_SPEED * nominalInfo.speedMultiplier : BASE_SPEED;
+    const isAccelerating = !player.finished && typeof player.speed === 'number' && player.speed > nominalSpeed * 1.05;
+    const isDecelerating = !player.finished && typeof player.speed === 'number' && player.speed < nominalSpeed * 0.95;
+
+    if (isDecelerating) {
+      ctx.fillStyle = 'rgba(230, 180, 0, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(x + 7, groundY - 15, 12, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (isAccelerating) {
+      ctx.strokeStyle = '#1d63a8';
+      ctx.lineWidth = 2;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath();
+        ctx.moveTo(x - 6 - k * 5, groundY - 22 + k * 4);
+        ctx.lineTo(x - 14 - k * 5, groundY - 22 + k * 4);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
+
     drawDino(x, groundY, { stride, dim: player.finished, color: playerColor(player) });
 
     if (player.gachaState) {
@@ -310,14 +412,56 @@ function render(state, now) {
       ctx.fillText('★', x + 8, groundY - 46);
     }
 
+    // "표현": name shown larger, my own runner gets a leading marker so I can
+    // spot my own row/track position at a glance among everyone else's.
     ctx.fillStyle = playerColor(player);
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText(player.name, 6, laneTop + 16);
+    ctx.font = 'bold 15px monospace';
+    const namePrefix = player.id === myId ? '▶ ' : '';
+    ctx.fillText(namePrefix + player.name, 6, laneTop + 20);
+
+    if (!player.finished && typeof player.speed === 'number') {
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#555555';
+      const speedText = `${player.speed}`;
+      ctx.fillText(speedText, x + 2, groundY - 58);
+
+      // ▲/▼ badges: cumulative count of speed-up / slow-down events so far.
+      let badgeX = x + 2 + speedText.length * 6 + 4;
+      const accelCount = player.accelCount || 0;
+      const decelCount = player.decelCount || 0;
+      if (accelCount > 0) {
+        ctx.fillStyle = '#d32f2f';
+        const accelText = `▲${accelCount}`;
+        ctx.fillText(accelText, badgeX, groundY - 58);
+        badgeX += accelText.length * 6 + 4;
+      }
+      if (decelCount > 0) {
+        ctx.fillStyle = '#1d63a8';
+        ctx.fillText(`▼${decelCount}`, badgeX, groundY - 58);
+      }
+    }
 
     if (player.finished) {
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText(`#${player.rank}`, x, groundY - 46);
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(MEDALS[player.rank] || `#${player.rank}`, x, groundY - 46);
     }
+  });
+
+  // The instant each player crosses the finish line, their rank gets a
+  // large, fading banner across the whole track background, in order.
+  finishAnnouncements = finishAnnouncements.filter((a) => now - a.startedAt < FINISH_ANNOUNCE_MS);
+  finishAnnouncements.forEach((a, i) => {
+    const age = now - a.startedAt;
+    const alpha = Math.max(0, 1 - age / FINISH_ANNOUNCE_MS);
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.fillStyle = a.color;
+    ctx.font = 'bold 48px monospace';
+    ctx.textAlign = 'center';
+    const label = `${MEDALS[a.rank] || `#${a.rank}`} ${a.name}`;
+    const y = canvas.height / 2 + i * 56 - (finishAnnouncements.length - 1) * 28;
+    ctx.fillText(label, canvas.width / 2, y);
+    ctx.restore();
   });
 }
 
@@ -370,3 +514,5 @@ gachaCardEls.forEach((el, i) => {
 });
 
 diceFaceEl.addEventListener('click', () => socket.emit('use-item'));
+
+itemBadgeEl.addEventListener('click', () => socket.emit('use-item'));

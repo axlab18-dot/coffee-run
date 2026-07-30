@@ -9,11 +9,10 @@ module.exports = {
   ROUND_TIME_LIMIT_MS: 120000,  // safety-net force-finish if someone never reaches the line
 
   // The track is split into 5 equal segments (5 gacha checkpoints: start,
-  // 1/5, 2/5, 3/5, 4/5). Each player gets this same set of multipliers, but
-  // shuffled independently per player — every player hits each multiplier
-  // exactly once across their 5 segments, just in a random order.
+  // 1/5, 2/5, 3/5, 4/5). Each segment is assigned one of the 5 track types
+  // (server/track.js) for the whole round; that assignment can be changed
+  // mid-round by track-altering items.
   NUM_SEGMENTS: 5,
-  SEGMENT_SPEED_MULTIPLIER_VALUES: [1, 2, 3, 5, 10],
 
   // Late-race "dice sprint": a 25% chance per round that everyone still
   // racing gets frozen at a random moment between 45-60s in, forced to roll

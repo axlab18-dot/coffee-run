@@ -2,8 +2,8 @@ function createLobby() {
   return { players: [] };
 }
 
-function addPlayer(lobby, id, name) {
-  lobby.players.push({ id, name, ready: false });
+function addPlayer(lobby, id, name, isBot = false) {
+  lobby.players.push({ id, name, ready: false, isBot });
 }
 
 function removePlayer(lobby, id) {

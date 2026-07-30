@@ -5,8 +5,8 @@ const {
   RAREST_TIER_ID,
   drawCard,
   drawCards,
-  drawCardsForTiers,
-  rollSegmentTierSet
+  drawCardsFromTier,
+  rollSegmentTier
 } = require('../server/gacha');
 
 test('every drawn card belongs to a real tier and template', () => {
@@ -18,11 +18,22 @@ test('every drawn card belongs to a real tier and template', () => {
   }
 });
 
-test('every card in every tier is an item (nothing auto-applies anymore)', () => {
+const VALID_PASSIVE_EFFECT_KINDS = ['selfSpeed', 'othersSpeed', 'trackMultiplierOverride', 'giant', 'painfulLife'];
+
+test('every card is either an item with an itemEffect or a passive with a passiveEffect', () => {
   for (const tier of TIERS) {
     for (const card of tier.cards) {
-      assert.strictEqual(card.kind, 'item');
-      assert.ok(card.itemEffect, `${card.key} is missing an itemEffect`);
+      if (card.kind === 'item') {
+        assert.ok(card.itemEffect, `${card.key} is missing an itemEffect`);
+      } else if (card.kind === 'passive') {
+        assert.ok(card.passiveEffect, `${card.key} is missing a passiveEffect`);
+        assert.ok(
+          VALID_PASSIVE_EFFECT_KINDS.includes(card.passiveEffect.kind),
+          `${card.key} has an invalid passiveEffect kind`
+        );
+      } else {
+        assert.fail(`${card.key} has unexpected kind ${card.kind}`);
+      }
     }
   }
 });
@@ -59,32 +70,27 @@ test('RAREST_TIER_ID points at the lowest-weight tier (★★★★★)', () => 
   assert.strictEqual(rarest.label, '★★★★★');
 });
 
-test('rollSegmentTierSet returns 3 valid tier ids', () => {
+test('rollSegmentTier returns a valid tier id', () => {
   const validIds = TIERS.map((t) => t.id);
-  const tierIds = rollSegmentTierSet();
-  assert.strictEqual(tierIds.length, 3);
-  for (const id of tierIds) assert.ok(validIds.includes(id));
-});
-
-test('rollSegmentTierSet never includes the rarest tier more than once', () => {
-  for (let i = 0; i < 2000; i++) {
-    const tierIds = rollSegmentTierSet();
-    const rareCount = tierIds.filter((id) => id === RAREST_TIER_ID).length;
-    assert.ok(rareCount <= 1, `expected at most one rarest-tier draw, got: ${tierIds}`);
+  for (let i = 0; i < 200; i++) {
+    assert.ok(validIds.includes(rollSegmentTier()));
   }
 });
 
-test('drawCardsForTiers draws exactly one card per given tier, honoring the tier composition', () => {
-  const tierIds = [1, 2, 5];
-  const cards = drawCardsForTiers(tierIds);
-  assert.strictEqual(cards.length, 3);
-  assert.deepStrictEqual(cards.map((c) => c.tier), tierIds);
+test('drawCardsFromTier(tierId, 3) draws 3 cards, all from that single tier', () => {
+  for (const tier of TIERS) {
+    const cards = drawCardsFromTier(tier.id, 3);
+    assert.strictEqual(cards.length, 3);
+    for (const card of cards) assert.strictEqual(card.tier, tier.id);
+  }
 });
 
-test('drawCardsForTiers never repeats a card, even when the same tier appears twice', () => {
+test('drawCardsFromTier never repeats a card within one draw', () => {
   for (let i = 0; i < 300; i++) {
-    const cards = drawCardsForTiers([1, 1, 1]);
-    const keys = new Set(cards.map((c) => c.key));
-    assert.strictEqual(keys.size, cards.length, `duplicate key among: ${cards.map((c) => c.key)}`);
+    for (const tier of TIERS) {
+      const cards = drawCardsFromTier(tier.id, 3);
+      const keys = new Set(cards.map((c) => c.key));
+      assert.strictEqual(keys.size, cards.length, `duplicate key among: ${cards.map((c) => c.key)}`);
+    }
   }
 });

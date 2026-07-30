@@ -1,9 +1,96 @@
 const { BASE_SPEED, NUM_SEGMENTS } = require('./constants');
 const { TIER_RANK } = require('./gacha');
+const { TRACKS, trackById, TRACK_GRASS_ID, TRACK_LAVA_ID, TRACK_ICE_ID, TRACK_THORN_ID } = require('./track');
+
+// Effect kinds that originate from a passive pick (as opposed to a one-shot
+// item use) — these are what "괜찮아"/"안괜찮아"/역전의 용사 operate on.
+const PASSIVE_EFFECT_KINDS = ['permanent', 'trackMultiplierOverride', 'permanentMultiplier'];
+function isPassiveEffect(effect) {
+  return PASSIVE_EFFECT_KINDS.includes(effect.kind);
+}
+
+// A passive-less player gets 허명구의 가호's own x5 for free while on 풀밭 —
+// a catch-up mechanic for whoever hasn't accumulated anything yet.
+const GRASS_COMEBACK_MULTIPLIER = 5;
 
 function nextEffectSeq(round) {
   round.effectSeq = (round.effectSeq || 0) + 1;
   return round.effectSeq;
+}
+
+// ▲/▼ badges next to the speed readout: how many times a speed-up or
+// slow-down has landed on this player. Only counts effects that are
+// unambiguously "this player got faster/slower" — not positional yanks
+// (중력맨/반중력맨/블랙홀) or structural/continuous effects (삶은 고통's drag).
+function bumpAccel(player) {
+  player.accelCount = (player.accelCount || 0) + 1;
+}
+function bumpDecel(player) {
+  player.decelCount = (player.decelCount || 0) + 1;
+}
+
+function setSegmentTrackRange(round, startIndex, count, trackId) {
+  for (let i = startIndex; i < startIndex + count; i++) {
+    if (i >= 0 && i < round.track.segmentTracks.length) round.track.segmentTracks[i] = trackId;
+  }
+}
+
+function applyPassive(round, player, passiveEffect, tierRank) {
+  if (passiveEffect.kind === 'selfSpeed') {
+    round.effects.push({
+      sourceId: player.id,
+      scope: 'self',
+      kind: 'permanent',
+      value: passiveEffect.amount,
+      tierRank,
+      seq: nextEffectSeq(round)
+    });
+    bumpAccel(player);
+  } else if (passiveEffect.kind === 'othersSpeed') {
+    round.effects.push({
+      sourceId: player.id,
+      scope: 'others',
+      kind: 'permanent',
+      value: passiveEffect.amount,
+      tierRank,
+      seq: nextEffectSeq(round)
+    });
+    for (const other of activeRacers(round, player.id)) bumpDecel(other);
+  } else if (passiveEffect.kind === 'trackMultiplierOverride') {
+    // While the picker is on `trackId`, use `multiplier` instead of that
+    // track's normal speedMultiplier — a personal buff, not a shared one.
+    round.effects.push({
+      sourceId: player.id,
+      kind: 'trackMultiplierOverride',
+      trackId: passiveEffect.trackId,
+      value: passiveEffect.multiplier,
+      tierRank,
+      seq: nextEffectSeq(round)
+    });
+  } else if (passiveEffect.kind === 'giant') {
+    player.isGiant = true;
+    player.stompedIds = player.stompedIds || new Set();
+    round.effects.push({
+      sourceId: player.id,
+      scope: 'self',
+      kind: 'permanent',
+      value: passiveEffect.amount,
+      tierRank,
+      seq: nextEffectSeq(round)
+    });
+    bumpAccel(player);
+    // "모든 트랙이 하나로 합쳐져서 모두가 같은 트랙에서 달리게 됨" — every
+    // segment (already-run and upcoming) becomes whatever track the giant
+    // activated on.
+    const currentIndex = player.checkpointsDone - 1;
+    const currentTrackId = round.track.segmentTracks[currentIndex];
+    if (currentTrackId != null) {
+      round.track.segmentTracks = round.track.segmentTracks.map(() => currentTrackId);
+    }
+  } else if (passiveEffect.kind === 'painfulLife') {
+    round.painfulLifeActive = true;
+    setSegmentTrackRange(round, player.checkpointsDone - 1, 1, TRACK_THORN_ID);
+  }
 }
 
 function applyCard(round, player, card) {
@@ -31,6 +118,11 @@ function applyCard(round, player, card) {
     });
   } else if (card.kind === 'item') {
     player.heldItem = card;
+  } else if (card.kind === 'passive') {
+    // Passives apply immediately and stack — each one picked adds another
+    // permanent effect, never removed for the rest of the round (unless
+    // wiped by 괜찮아/안괜찮아/역전의 용사).
+    applyPassive(round, player, card.passiveEffect, tierRank);
   } else if (card.kind === 'instantWin') {
     player.guaranteedRank = true;
     player.guaranteedRankAt = round.elapsedMs;
@@ -64,6 +156,9 @@ function useHeldItem(round, player) {
       seq: nextEffectSeq(round),
       remainingMs: effect.durationMs
     });
+    if (effect.value < BASE_SPEED) {
+      for (const other of activeRacers(round, player.id)) bumpDecel(other);
+    }
   } else if (effect.kind === 'resetAll') {
     for (const p of round.players) p.x = 0;
     round.forcedAutoGachaRemaining = 1;
@@ -76,11 +171,16 @@ function useHeldItem(round, player) {
       seq: nextEffectSeq(round),
       remainingMs: effect.durationMs
     });
-  } else if (effect.kind === 'gravityPull') {
-    // Snap every other active racer toward my position by a fraction of the
-    // gap between us — an instant, one-time pull, not a lingering effect.
-    for (const other of activeRacers(round, player.id)) {
-      other.x = Math.max(0, other.x + (player.x - other.x) * effect.fraction);
+    if (effect.value > 1) bumpAccel(player);
+  } else if (effect.kind === 'forcedMove') {
+    // 중력맨(toward)/반중력맨(away)/블랙홀(toward): for the duration, each
+    // affected player moves toward/away from the picker's position at their
+    // own current speed, regardless of segment ("구간 관계없이").
+    const targets = effect.onlyBehind
+      ? activeRacers(round, player.id).filter((o) => o.x < player.x)
+      : activeRacers(round, player.id);
+    for (const target of targets) {
+      target.forcedMove = { towardId: player.id, mode: effect.mode, remainingMs: effect.durationMs };
     }
   } else if (effect.kind === 'antiGravityPush') {
     // Only pushes racers who are currently behind me, further back.
@@ -108,10 +208,14 @@ function useHeldItem(round, player) {
   } else if (effect.kind === 'reverseRace') {
     // Mirrors every still-racing player's progress across the track — the
     // leader becomes the last, the last becomes the leader. The race then
-    // continues as normal toward the same finish line.
+    // continues as normal toward the same finish line. Track effects on the
+    // (now-swapped) segments still apply, but every passive is wiped.
     for (const p of round.players) {
       if (!p.finished) p.x = Math.max(0, round.track.trackLength - p.x);
+      p.isGiant = false;
     }
+    round.effects = round.effects.filter((e) => !isPassiveEffect(e));
+    round.painfulLifeActive = false;
   } else if (effect.kind === 'tectonicShift') {
     const numLanes = round.players.length;
     for (const other of activeRacers(round, player.id)) {
@@ -127,6 +231,7 @@ function useHeldItem(round, player) {
           seq: nextEffectSeq(round),
           remainingMs: 3000
         });
+        bumpDecel(other);
       } else if (roll === 1) {
         round.effects.push({
           sourceId: player.id,
@@ -138,6 +243,7 @@ function useHeldItem(round, player) {
           seq: nextEffectSeq(round),
           remainingMs: 3000
         });
+        bumpDecel(other);
       } else {
         other.laneIndex = (other.laneIndex + 1) % numLanes;
       }
@@ -145,6 +251,82 @@ function useHeldItem(round, player) {
   } else if (effect.kind === 'patriotMissile') {
     for (const other of activeRacers(round, player.id)) {
       other.x = Math.random() * round.track.trackLength;
+    }
+  } else if (effect.kind === 'setSegmentTrack') {
+    // "지금 구간"/"내 앞 N구간" are always relative to the segment slot the
+    // picker is about to run (player.checkpointsDone was already bumped by
+    // finishGachaSelection before applyCard runs), and the assignment is
+    // shared, so this affects every player who reaches that slot.
+    setSegmentTrackRange(round, player.checkpointsDone - 1, effect.count, effect.trackId);
+  } else if (effect.kind === 'shuffleRandomSegments') {
+    // 소격변/중격변: pick `count` distinct segment slots and reassign each an
+    // independently random track (values may repeat — 중격변 explicitly says
+    // duplicates among the 3 are fine).
+    const segmentTracks = round.track.segmentTracks;
+    const indices = segmentTracks.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    const chosen = indices.slice(0, Math.min(effect.count, indices.length));
+    const trackIds = TRACKS.map((t) => t.id);
+    for (const idx of chosen) {
+      segmentTracks[idx] = trackIds[Math.floor(Math.random() * trackIds.length)];
+    }
+  } else if (effect.kind === 'clearOthersPassives') {
+    round.effects = round.effects.filter((e) => !isPassiveEffect(e) || e.sourceId === player.id);
+  } else if (effect.kind === 'swapPassivesRandom') {
+    const others = activeRacers(round, player.id);
+    if (others.length > 0) {
+      const target = others[Math.floor(Math.random() * others.length)];
+      for (const e of round.effects) {
+        if (!isPassiveEffect(e)) continue;
+        if (e.sourceId === player.id) e.sourceId = target.id;
+        else if (e.sourceId === target.id) e.sourceId = player.id;
+      }
+    }
+  } else if (effect.kind === 'reciprocalSpeedRandom') {
+    for (const other of activeRacers(round, player.id)) {
+      const roll = effect.min + Math.floor(Math.random() * (effect.max - effect.min + 1));
+      const value = 1 / roll;
+      round.effects.push({
+        sourceId: other.id,
+        kind: 'multiplier',
+        value,
+        tierRank,
+        seq: nextEffectSeq(round),
+        remainingMs: effect.durationMs
+      });
+      if (value < 1) bumpDecel(other);
+    }
+  } else if (effect.kind === 'diceSpeedPassiveForAll') {
+    round.effects.push({
+      sourceId: player.id,
+      kind: 'permanentMultiplier',
+      value: effect.selfValue,
+      tierRank,
+      seq: nextEffectSeq(round)
+    });
+    bumpAccel(player);
+    for (const other of activeRacers(round, player.id)) {
+      const roll = 1 + Math.floor(Math.random() * 6);
+      round.effects.push({
+        sourceId: other.id,
+        kind: 'permanentMultiplier',
+        value: roll,
+        tierRank,
+        seq: nextEffectSeq(round)
+      });
+      if (roll > 1) bumpAccel(other);
+    }
+  } else if (effect.kind === 'rewindOthersIfLeading') {
+    const ranked = rankedRacers(round);
+    const isLeading = ranked.length > 0 && ranked[0].id === player.id;
+    if (isLeading) {
+      const segmentStartX = round.track.checkpoints[player.checkpointsDone - 1] || 0;
+      for (const other of activeRacers(round, player.id)) {
+        if (other.x > segmentStartX) other.x = segmentStartX;
+      }
     }
   }
 
@@ -170,34 +352,88 @@ function targetsPlayer(effect, player) {
   return false;
 }
 
+// The segment (0-indexed slot into round.track.segmentTracks) a player is
+// currently running, based on how many checkpoints they've passed.
+function currentSegmentIndex(player) {
+  return Math.min(NUM_SEGMENTS, Math.max(1, player.checkpointsDone || 1)) - 1;
+}
+
+function currentTrackId(round, player) {
+  return round.track.segmentTracks[currentSegmentIndex(player)];
+}
+
+// 빙판(ICE) grants immunity to incoming slow-downs; 가시밭(THORN) grants
+// immunity to incoming speed-ups (from either items or passives) — both per
+// coffee run.md. "Slow"/"speed-up" is just the sign of the effect's
+// value/ratio relative to a neutral baseline.
 function computeSpeed(round, player) {
   // The dice-roll "final sprint" is a fixed, fully-determined speed for the
-  // rest of the race — it bypasses every other effect and the segment
-  // multiplier below.
+  // rest of the race — it bypasses every other effect and the track below.
   if (player.diceSpeed != null) return player.diceSpeed;
 
-  const overrides = round.effects.filter((e) => e.kind === 'override' && targetsPlayer(e, player));
+  const trackId = currentTrackId(round, player);
+  const track = trackById(trackId);
+  const ignoreSlow = trackId === TRACK_ICE_ID;
+  const ignoreSpeedUp = trackId === TRACK_THORN_ID;
 
+  const overrides = round.effects.filter((e) => e.kind === 'override' && targetsPlayer(e, player));
+  const usableOverrides = overrides.filter((e) => {
+    if (ignoreSlow && e.value < BASE_SPEED) return false;
+    if (ignoreSpeedUp && e.value > BASE_SPEED) return false;
+    return true;
+  });
+
+  // 달리기 속도는 최초 구간 종료 후 초기화되지 않고 조건들이 계속 중첩된다:
+  // every additive/override effect currently in round.effects (segment,
+  // timed, permanent passives, etc.) still applies here regardless of how
+  // many segments the player has already crossed.
   let rawSpeed;
-  if (overrides.length > 0) {
-    rawSpeed = pickPriorityEffect(overrides).value;
+  if (usableOverrides.length > 0) {
+    rawSpeed = pickPriorityEffect(usableOverrides).value;
   } else {
     rawSpeed = BASE_SPEED;
     for (const effect of round.effects) {
-      if (effect.kind === 'override' || effect.kind === 'multiplier') continue;
-      if (targetsPlayer(effect, player)) rawSpeed += effect.value;
+      if (['override', 'multiplier', 'permanentMultiplier', 'trackMultiplierOverride'].includes(effect.kind)) continue;
+      if (!targetsPlayer(effect, player)) continue;
+      if (ignoreSlow && effect.value < 0) continue;
+      if (ignoreSpeedUp && effect.value > 0) continue;
+      rawSpeed += effect.value;
     }
   }
 
-  // Self-only "가속" items multiply on top of the additive/override speed.
+  // Self-only multipliers ("가속" items, the ★★★★★ 갑분주 dice passive) stack
+  // multiplicatively on top of the additive/override speed above.
   for (const effect of round.effects) {
-    if (effect.kind === 'multiplier' && effect.sourceId === player.id) {
+    if ((effect.kind === 'multiplier' || effect.kind === 'permanentMultiplier') && effect.sourceId === player.id) {
+      if (ignoreSlow && effect.value < 1) continue;
+      if (ignoreSpeedUp && effect.value > 1) continue;
       rawSpeed *= effect.value;
     }
   }
 
-  const segment = Math.min(NUM_SEGMENTS, Math.max(1, player.checkpointsDone || 1));
-  return rawSpeed * player.segmentSpeedMultipliers[segment - 1];
+  let trackMultiplier = track.speedMultiplier;
+  const explicitOverride = round.effects.find(
+    (e) => e.kind === 'trackMultiplierOverride' && e.sourceId === player.id && e.trackId === trackId
+  );
+  if (explicitOverride) {
+    trackMultiplier = explicitOverride.value;
+  } else if (trackId === TRACK_GRASS_ID) {
+    // 풀밭: a player with zero accumulated passives of their own gets
+    // 허명구의 가호's own x5 for free (comeback mechanic).
+    const hasOwnPassive = round.effects.some((e) => isPassiveEffect(e) && e.sourceId === player.id);
+    if (!hasOwnPassive) trackMultiplier = GRASS_COMEBACK_MULTIPLIER;
+  }
+
+  let finalSpeed = rawSpeed * trackMultiplier;
+
+  if (round.painfulLifeActive) {
+    // "속도가 빠를수록 저항을 많이 받음" — approximated as drag proportional
+    // to how far above base speed the player currently sits.
+    const excess = Math.max(0, finalSpeed - BASE_SPEED);
+    finalSpeed -= excess * 0.3;
+  }
+
+  return finalSpeed;
 }
 
 function tickEffects(round, dtSeconds) {
@@ -207,7 +443,7 @@ function tickEffects(round, dtSeconds) {
       effect.remainingMs -= dtMs;
       return effect.remainingMs > 0;
     }
-    return true; // segment effects are pruned by removeSegmentEffectsFor, not by time
+    return true; // segment/permanent/track effects are pruned elsewhere, not by time
   });
 }
 
@@ -217,4 +453,109 @@ function removeSegmentEffectsFor(round, playerId) {
   round.effects = round.effects.filter((effect) => !(effect.kind === 'segment' && effect.sourceId === playerId));
 }
 
-module.exports = { applyCard, useHeldItem, computeSpeed, tickEffects, removeSegmentEffectsFor };
+// Fires when a player crosses from one segment into the next: post-segment
+// effects for the track they just left (불바다/빙판/가시밭). `prevCheckpointsDone`
+// is the player's checkpointsDone *before* this crossing was recorded (0
+// means they haven't run any segment yet, so there's nothing to leave).
+function handleTrackTransition(round, player, prevCheckpointsDone) {
+  if (prevCheckpointsDone <= 0) return;
+
+  const leftTrackId = round.track.segmentTracks[prevCheckpointsDone - 1];
+  const enteringTrackId = round.track.segmentTracks[player.checkpointsDone - 1];
+
+  if (leftTrackId === TRACK_LAVA_ID) {
+    // "불바다 다음이 빙판일 경우 트랙 효과는 무효화 됨" — no need for a special
+    // case: 빙판's own slow-immunity in computeSpeed already ignores this
+    // multiplier (<1) the moment the player is standing on 빙판.
+    round.effects.push({
+      sourceId: player.id,
+      kind: 'multiplier',
+      value: 0.3,
+      tierRank: 0,
+      seq: nextEffectSeq(round),
+      remainingMs: 3000
+    });
+    if (enteringTrackId !== TRACK_ICE_ID) bumpDecel(player);
+  } else if (leftTrackId === TRACK_ICE_ID) {
+    if (Math.random() < 0.75) {
+      round.effects.push({
+        sourceId: player.id,
+        scope: 'self',
+        kind: 'override',
+        value: 0,
+        tierRank: 0,
+        seq: nextEffectSeq(round),
+        remainingMs: 2000
+      });
+      bumpDecel(player);
+    }
+  } else if (leftTrackId === TRACK_THORN_ID) {
+    round.effects.push({
+      sourceId: player.id,
+      scope: 'self',
+      kind: 'permanent',
+      value: 20,
+      tierRank: 0,
+      seq: nextEffectSeq(round)
+    });
+    bumpAccel(player);
+  }
+}
+
+// 중력맨/반중력맨/블랙홀 (forcedMove): while active, movement is a straight
+// approach/retreat toward the source's position, at the player's own current
+// speed, instead of the normal forward track movement — "구간 관계없이".
+// Returns true if it handled this tick's movement (round.js should then
+// skip the normal computeSpeed-based advance).
+function tickForcedMove(round, player, dtSeconds) {
+  if (!player.forcedMove) return false;
+
+  const anchor = round.players.find((p) => p.id === player.forcedMove.towardId);
+  if (anchor) {
+    const magnitude = Math.abs(computeSpeed(round, player));
+    const direction =
+      player.forcedMove.mode === 'toward' ? Math.sign(anchor.x - player.x) : Math.sign(player.x - anchor.x);
+    player.x = Math.max(0, player.x + direction * magnitude * dtSeconds);
+  }
+
+  player.forcedMove.remainingMs -= dtSeconds * 1000;
+  if (player.forcedMove.remainingMs <= 0) player.forcedMove = null;
+  return true;
+}
+
+// A giant (거대화 passive) stomp-stuns each rival the first time it's ahead
+// of them; tracked per-giant so the same rival isn't re-stunned every tick.
+function applyGiantStomps(round) {
+  for (const giant of round.players) {
+    if (!giant.isGiant || giant.finished) continue;
+    if (!giant.stompedIds) giant.stompedIds = new Set();
+    for (const other of activeRacers(round, giant.id)) {
+      if (giant.stompedIds.has(other.id)) continue;
+      if (giant.x > other.x) {
+        giant.stompedIds.add(other.id);
+        round.effects.push({
+          sourceId: giant.id,
+          scope: 'target',
+          targetId: other.id,
+          kind: 'override',
+          value: 0,
+          tierRank: 5,
+          seq: nextEffectSeq(round),
+          remainingMs: 3000
+        });
+        bumpDecel(other);
+      }
+    }
+  }
+}
+
+module.exports = {
+  applyCard,
+  useHeldItem,
+  computeSpeed,
+  tickEffects,
+  removeSegmentEffectsFor,
+  handleTrackTransition,
+  applyGiantStomps,
+  tickForcedMove
+};

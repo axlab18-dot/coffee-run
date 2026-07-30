@@ -1,6 +1,15 @@
 const { createTrack, isPastFinish } = require('./track');
-const { drawCard, drawCardsForTiers, rollSegmentTierSet } = require('./gacha');
-const { applyCard, computeSpeed, tickEffects, removeSegmentEffectsFor } = require('./effects');
+const { drawCard, drawCardsFromTier, rollSegmentTier } = require('./gacha');
+const {
+  applyCard,
+  useHeldItem,
+  computeSpeed,
+  tickEffects,
+  removeSegmentEffectsFor,
+  handleTrackTransition,
+  applyGiantStomps,
+  tickForcedMove
+} = require('./effects');
 const {
   BASE_SPEED,
   GACHA_SELECT_MS,
@@ -11,6 +20,12 @@ const {
   DICE_SPIN_MS,
   DICE_AUTO_ROLL_MS
 } = require('./constants');
+
+// Bots have no client, so these per-tick probabilities stand in for "reaction
+// time" — at TICK_RATE (30/s) they average out to roughly the time noted.
+const BOT_GACHA_PICK_CHANCE_PER_TICK = 0.05; // ~0.7s average
+const BOT_USE_ITEM_CHANCE_PER_TICK = 0.02; // ~1.7s average
+const BOT_DICE_ROLL_CHANCE_PER_TICK = 0.05; // ~0.7s average
 
 function createRound(players) {
   players.forEach((player, index) => {
@@ -25,14 +40,15 @@ function createRound(players) {
     track,
     effects: [],
     effectSeq: 0,
+    painfulLifeActive: false,
     forcedAutoGachaRemaining: 0,
     elapsedMs: 0,
     finishOrder: [],
     diceEvent: createDiceEvent(),
-    // One tier-composition per checkpoint, rolled once for the whole round —
-    // every player sees the same 3 tiers at a given checkpoint (fairness),
-    // even though the specific card within each tier is still randomized.
-    segmentTierSets: track.checkpoints.map(() => rollSegmentTierSet())
+    // One tier per checkpoint, rolled once for the whole round — every
+    // player sees the same tier group at a given checkpoint (fairness), so
+    // the 3 options offered there are always from that single tier's list.
+    segmentTiers: track.checkpoints.map(() => rollSegmentTier())
   };
 }
 
@@ -55,24 +71,28 @@ function triggerGacha(round, player) {
 
   if (round.forcedAutoGachaRemaining > 0) {
     round.forcedAutoGachaRemaining -= 1;
+    const prevCheckpointsDone = player.checkpointsDone;
     player.checkpointsDone += 1;
     applyCard(round, player, drawCard());
+    handleTrackTransition(round, player, prevCheckpointsDone);
     return;
   }
 
-  // Every player at this checkpoint draws from the same 3-tier composition
-  // (round.segmentTierSets), so the tier odds are identical across players —
-  // only the specific card within each tier is randomized per player.
-  const tierSet = round.segmentTierSets[player.checkpointsDone];
-  player.gachaState = { options: drawCardsForTiers(tierSet), remainingMs: GACHA_SELECT_MS };
+  // Every player at this checkpoint draws from the same tier
+  // (round.segmentTiers), so the 3 options are always from a single group —
+  // only which specific cards within that tier are offered is randomized.
+  const tierId = round.segmentTiers[player.checkpointsDone];
+  player.gachaState = { options: drawCardsFromTier(tierId), remainingMs: GACHA_SELECT_MS };
 }
 
 // Shared cleanup once a gacha choice is settled, whether the player picked a
 // card, timed out with nothing selected, or auto-applied a forced pick.
 function finishGachaSelection(round, player, card) {
+  const prevCheckpointsDone = player.checkpointsDone;
   player.gachaState = null;
   player.checkpointsDone += 1;
   if (card) applyCard(round, player, card);
+  handleTrackTransition(round, player, prevCheckpointsDone);
 
   // The dice event may have fired while this player was mid-pick — since
   // they were frozen for the gacha already, they missed the freeze sweep and
@@ -126,9 +146,14 @@ function checkDiceEventTrigger(round) {
 
 function finishPlayer(round, player, resultReason) {
   player.finished = true;
+  player.finishTimeMs = round.elapsedMs;
   player.resultReason = resultReason;
   removeSegmentEffectsFor(round, player.id);
   round.finishOrder.push(player.id);
+  // Provisional rank by arrival order, so the client can announce it the
+  // instant this player crosses the line — finalizeRanks recomputes the
+  // real final ranks (guaranteedRank first) once the whole round ends.
+  player.rank = round.finishOrder.length;
 }
 
 function tickRound(round, dtSeconds) {
@@ -142,6 +167,12 @@ function tickRound(round, dtSeconds) {
     if (player.finished) continue;
 
     if (player.gachaState) {
+      // Bots have no client to click a card, so they pick a random option
+      // themselves after a short, randomized reaction delay each tick.
+      if (player.isBot && Math.random() < BOT_GACHA_PICK_CHANCE_PER_TICK) {
+        resolveGacha(round, player, Math.floor(Math.random() * player.gachaState.options.length));
+        continue;
+      }
       player.gachaState.remainingMs -= dtSeconds * 1000;
       if (player.gachaState.remainingMs <= 0) {
         skipGacha(round, player);
@@ -150,6 +181,9 @@ function tickRound(round, dtSeconds) {
     }
 
     if (player.diceState) {
+      if (player.isBot && !player.diceState.spinning && Math.random() < BOT_DICE_ROLL_CHANCE_PER_TICK) {
+        startDiceSpin(player);
+      }
       if (player.diceState.spinning) {
         player.diceState.remainingMs -= dtSeconds * 1000;
         if (player.diceState.remainingMs <= 0) resolveDiceRoll(round, player);
@@ -160,8 +194,14 @@ function tickRound(round, dtSeconds) {
       continue;
     }
 
-    const speed = computeSpeed(round, player);
-    player.x = Math.max(0, player.x + speed * dtSeconds);
+    if (player.isBot && player.heldItem && Math.random() < BOT_USE_ITEM_CHANCE_PER_TICK) {
+      useHeldItem(round, player);
+    }
+
+    if (!tickForcedMove(round, player, dtSeconds)) {
+      const speed = computeSpeed(round, player);
+      player.x = Math.max(0, player.x + speed * dtSeconds);
+    }
 
     const checkpoints = round.track.checkpoints;
     while (
@@ -177,6 +217,7 @@ function tickRound(round, dtSeconds) {
     }
   }
 
+  applyGiantStomps(round);
   tickEffects(round, dtSeconds);
 
   const allFinished = round.players.every((p) => p.finished);
@@ -199,6 +240,11 @@ function tickRound(round, dtSeconds) {
 function finalizeRanks(round) {
   let rank = 1;
   const byId = new Map(round.players.map((p) => [p.id, p]));
+
+  // finishPlayer() already set a provisional arrival-order rank on each
+  // player (for the client's live finish announcement) — reset here so the
+  // guaranteedRank-first ordering below is the actual final word.
+  for (const player of round.players) player.rank = null;
 
   // Anyone holding the special-tier "instant win" card is guaranteed rank 1+,
   // ordered by whenever they picked it, ahead of everyone else.

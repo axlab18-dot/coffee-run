@@ -1,9 +1,10 @@
 const { ITEM_STOP_SPEED, ITEM_BACKWARD_SPEED } = require('./constants');
+const { TRACK_PAVED_ID, TRACK_GRASS_ID, TRACK_LAVA_ID, TRACK_ICE_ID } = require('./track');
 
 let nextInstanceId = 1;
 
-// Every card is now an item: drawn cards are just held until Space, never
-// auto-applied. See 뽑기.txt for the full effect list this mirrors.
+// Items are held until Space; passives apply immediately and stack. See
+// 뽑기.txt for the full effect list this mirrors.
 const TIERS = [
   {
     id: 1,
@@ -24,9 +25,33 @@ const TIERS = [
       },
       {
         key: 's1-gravity-1',
-        label: '아이템: 중력맨 (내 쪽으로 타인 당기기 레벨 1)',
+        label: '아이템: 중력맨 (내 쪽으로 타인을 1초간 당긴다)',
         kind: 'item',
-        itemEffect: { kind: 'gravityPull', fraction: 0.2 }
+        itemEffect: { kind: 'forcedMove', mode: 'toward', durationMs: 1000 }
+      },
+      {
+        key: 's1-practice-makes-perfect',
+        label: '아이템: 연습만이 살길 (모두의 지금 구간이 보통길로 변경)',
+        kind: 'item',
+        itemEffect: { kind: 'setSegmentTrack', trackId: TRACK_PAVED_ID, count: 1 }
+      },
+      {
+        key: 's1-passive-speed-up',
+        label: '패시브: 달려 달려 (내 달리기 속도 +3)',
+        kind: 'passive',
+        passiveEffect: { kind: 'selfSpeed', amount: 3 }
+      },
+      {
+        key: 's1-passive-slow-others',
+        label: '패시브: 느려 느려 (남 달리기 속도 -3)',
+        kind: 'passive',
+        passiveEffect: { kind: 'othersSpeed', amount: -3 }
+      },
+      {
+        key: 's1-passive-hermit-blessing',
+        label: '패시브: 자연인 허명구의 가호 (풀밭에서 배속 x5)',
+        kind: 'passive',
+        passiveEffect: { kind: 'trackMultiplierOverride', trackId: TRACK_GRASS_ID, multiplier: 5 }
       }
     ]
   },
@@ -36,10 +61,10 @@ const TIERS = [
     weight: 25,
     cards: [
       {
-        key: 's2-stop-3s',
-        label: '아이템: 나 빼고 다 멈추기 3초',
+        key: 's2-stop-2s',
+        label: '아이템: 나 빼고 다 멈추기 2초',
         kind: 'item',
-        itemEffect: { kind: 'override', scope: 'others', value: ITEM_STOP_SPEED, durationMs: 3000 }
+        itemEffect: { kind: 'override', scope: 'others', value: ITEM_STOP_SPEED, durationMs: 2000 }
       },
       {
         key: 's2-accel-3x',
@@ -49,9 +74,45 @@ const TIERS = [
       },
       {
         key: 's2-gravity-2',
-        label: '아이템: 중력맨 (내 쪽으로 타인 당기기 레벨 2)',
+        label: '아이템: 중력맨 (내 쪽으로 타인을 2초간 당긴다)',
         kind: 'item',
-        itemEffect: { kind: 'gravityPull', fraction: 0.4 }
+        itemEffect: { kind: 'forcedMove', mode: 'toward', durationMs: 2000 }
+      },
+      {
+        key: 's2-minor-shift',
+        label: '아이템: 소격변 (트랙 5구간 중 2개가 무작위로 바뀜)',
+        kind: 'item',
+        itemEffect: { kind: 'shuffleRandomSegments', count: 2 }
+      },
+      {
+        key: 's2-its-okay',
+        label: '아이템: 괜찮아 (상대가 적용한 패시브 모두 제거)',
+        kind: 'item',
+        itemEffect: { kind: 'clearOthersPassives' }
+      },
+      {
+        key: 's2-its-not-okay',
+        label: '아이템: 안괜찮아 (랜덤한 유저와 패시브 효과 상호 교환)',
+        kind: 'item',
+        itemEffect: { kind: 'swapPassivesRandom' }
+      },
+      {
+        key: 's2-arsonist',
+        label: '아이템: 방화범 (모두의 해당 구간을 불바다로 변경)',
+        kind: 'item',
+        itemEffect: { kind: 'setSegmentTrack', trackId: TRACK_LAVA_ID, count: 1 }
+      },
+      {
+        key: 's2-passive-speed-up',
+        label: '패시브: 달려 달려 (내 달리기 속도 +6)',
+        kind: 'passive',
+        passiveEffect: { kind: 'selfSpeed', amount: 6 }
+      },
+      {
+        key: 's2-passive-slow-others',
+        label: '패시브: 느려 느려 (남 달리기 속도 -6)',
+        kind: 'passive',
+        passiveEffect: { kind: 'othersSpeed', amount: -6 }
       }
     ]
   },
@@ -68,7 +129,7 @@ const TIERS = [
       },
       {
         key: 's3-swap-2nd',
-        label: '아이템: 나와 2등의 트랙 바꾸기',
+        label: '아이템: 2등 나와 (나와 2등의 트랙 바꾸기)',
         kind: 'item',
         itemEffect: { kind: 'swapWithRank', rank: 2 }
       },
@@ -79,10 +140,46 @@ const TIERS = [
         itemEffect: { kind: 'multiplier', value: 4, durationMs: 3000 }
       },
       {
+        key: 's3-gravity-3',
+        label: '아이템: 중력맨 (내 쪽으로 타인을 3초간 당긴다)',
+        kind: 'item',
+        itemEffect: { kind: 'forcedMove', mode: 'toward', durationMs: 3000 }
+      },
+      {
+        key: 's3-major-shift',
+        label: '아이템: 중격변 (트랙 5구간 중 3개가 무작위로 바뀜, 중복 가능)',
+        kind: 'item',
+        itemEffect: { kind: 'shuffleRandomSegments', count: 3 }
+      },
+      {
+        key: 's3-sudden-chaos',
+        label: '아이템: 갑분주 (모두에게 1~3의 역배속 적용, 나는 효과 없음)',
+        kind: 'item',
+        itemEffect: { kind: 'reciprocalSpeedRandom', min: 1, max: 3, durationMs: 3000 }
+      },
+      {
         key: 's3-antigravity-1',
         label: '아이템: 반중력맨 (내 뒤쪽 타인 뒤로 더 밀어내기 레벨 1)',
         kind: 'item',
         itemEffect: { kind: 'antiGravityPush', amount: 300 }
+      },
+      {
+        key: 's3-slippery',
+        label: '아이템: 미끌 미끌 (내 앞 2구간을 빙판으로 변경)',
+        kind: 'item',
+        itemEffect: { kind: 'setSegmentTrack', trackId: TRACK_ICE_ID, count: 2 }
+      },
+      {
+        key: 's3-passive-speed-up',
+        label: '패시브: 달려 달려 (내 달리기 속도 +9)',
+        kind: 'passive',
+        passiveEffect: { kind: 'selfSpeed', amount: 9 }
+      },
+      {
+        key: 's3-passive-slow-others',
+        label: '패시브: 느려 느려 (남 달리기 속도 -9)',
+        kind: 'passive',
+        passiveEffect: { kind: 'othersSpeed', amount: -9 }
       }
     ]
   },
@@ -105,21 +202,45 @@ const TIERS = [
       },
       {
         key: 's4-swap-1st',
-        label: '아이템: 나와 1등의 트랙 바꾸기',
+        label: '아이템: 1등 나와 (나와 1등의 트랙 바꾸기)',
         kind: 'item',
         itemEffect: { kind: 'swapWithRank', rank: 1 }
       },
       {
         key: 's4-antigravity-2',
-        label: '아이템: 반중력맨 (내 뒤쪽 타인 뒤로 더 밀어내기 레벨 2)',
+        label: '아이템: 반중력맨 (내 뒤쪽 플레이어를 3초간 뒤로 밀어낸다)',
         kind: 'item',
-        itemEffect: { kind: 'antiGravityPush', amount: 600 }
+        itemEffect: { kind: 'forcedMove', mode: 'away', durationMs: 3000, onlyBehind: true }
+      },
+      {
+        key: 's4-black-hole',
+        label: '아이템: 블랙홀 (구간 관계없이 모두가 아이템 사용자 위치로 4초간 이동)',
+        kind: 'item',
+        itemEffect: { kind: 'forcedMove', mode: 'toward', durationMs: 4000 }
+      },
+      {
+        key: 's4-piece-of-cake',
+        label: '아이템: ㅈ밥게임 (내가 1등이면 모두 이 구간 시작 위치로 이동)',
+        kind: 'item',
+        itemEffect: { kind: 'rewindOthersIfLeading' }
       },
       {
         key: 's4-instant-sprint',
-        label: '아이템: 막판스퍼트 바로 적용',
+        label: '아이템: 막판 ㄱ (막판스퍼트 바로 적용)',
         kind: 'item',
         itemEffect: { kind: 'instantDiceSprint' }
+      },
+      {
+        key: 's4-passive-speed-up',
+        label: '패시브: 달려 달려 (내 달리기 속도 +20)',
+        kind: 'passive',
+        passiveEffect: { kind: 'selfSpeed', amount: 20 }
+      },
+      {
+        key: 's4-passive-slow-others',
+        label: '패시브: 느려 느려 (남 달리기 속도 -20)',
+        kind: 'passive',
+        passiveEffect: { kind: 'othersSpeed', amount: -20 }
       }
     ]
   },
@@ -130,7 +251,7 @@ const TIERS = [
     cards: [
       {
         key: 's5-reverse-hero',
-        label: '아이템: 역전의 용사 (모두가 출발점이 목적지가 되어 역주행함)',
+        label: '아이템: 역전의 용사 (모두가 출발점이 목적지가 되어 역주행함, 모든 패시브 소멸)',
         kind: 'item',
         itemEffect: { kind: 'reverseRace' }
       },
@@ -145,6 +266,24 @@ const TIERS = [
         label: '아이템: 패트리어트 (모두에게 미사일 발사, 맞은 사용자는 트랙에 랜덤하게 떨어짐)',
         kind: 'item',
         itemEffect: { kind: 'patriotMissile' }
+      },
+      {
+        key: 's5-sudden-chaos-dice',
+        label: '아이템: 갑분주 (모두가 배속 주사위(1~6)를 얻음, 나는 무조건 6배)',
+        kind: 'item',
+        itemEffect: { kind: 'diceSpeedPassiveForAll', selfValue: 6 }
+      },
+      {
+        key: 's5-passive-giant',
+        label: '패시브: 거대화 (속도 +15, 모든 구간이 지금 트랙으로 통일, 추월당한 상대 3초 스턴)',
+        kind: 'passive',
+        passiveEffect: { kind: 'giant', amount: 15 }
+      },
+      {
+        key: 's5-passive-painful-life',
+        label: '패시브: 삶은 고통 (모두의 지금 구간이 가시밭으로 변경, 빠를수록 저항 증가)',
+        kind: 'passive',
+        passiveEffect: { kind: 'painfulLife' }
       }
     ]
   }
@@ -197,41 +336,28 @@ function drawCards(n = 3) {
   return cards;
 }
 
-function drawCardForTier(tierId, excludeKeys) {
+// Rolls the single tier every player will draw from when they reach a given
+// checkpoint. Rolled once per checkpoint per round (not per player), so the
+// tier odds and presence are identical for everyone at that checkpoint.
+function rollSegmentTier() {
+  return pickWeightedTier().id;
+}
+
+// Draws n unique cards from within a single tier's pool (no cross-tier mix),
+// so a checkpoint rolled into e.g. ★★★ only ever offers ★★★ items. Falls
+// back to allowing repeats if the tier has fewer templates than n.
+function drawCardsFromTier(tierId, n = 3) {
   const tier = TIERS.find((t) => t.id === tierId);
-  const candidates = tier.cards.filter((c) => !excludeKeys.has(c.key));
-  const pool = candidates.length > 0 ? candidates : tier.cards;
-  const template = pool[Math.floor(Math.random() * pool.length)];
-  return { ...template, tier: tier.id, tierLabel: tier.label, instanceId: nextInstanceId++ };
-}
-
-// Draws one card per given tier id (in order), never repeating a card key
-// within the set. Used so every player at the same checkpoint sees the same
-// tier composition (fairness), while the exact card within each tier is
-// still randomized per player.
-function drawCardsForTiers(tierIds) {
-  const usedKeys = new Set();
-  return tierIds.map((tierId) => {
-    const card = drawCardForTier(tierId, usedKeys);
-    usedKeys.add(card.key);
-    return card;
-  });
-}
-
-// Rolls the 3-tier composition that every player will see when they reach a
-// given checkpoint. Rolled once per checkpoint per round (not per player),
-// so the rarest tier's odds and presence are identical for everyone. That
-// rarest tier is capped at one appearance per set — once rolled, later
-// slots exclude it (other tiers can still repeat freely).
-function rollSegmentTierSet(n = 3) {
-  const tierIds = [];
-  let rareUsed = false;
+  const pool = [...tier.cards];
+  const cards = [];
   for (let i = 0; i < n; i++) {
-    const tier = pickWeightedTier(rareUsed ? [RAREST_TIER_ID] : []);
-    if (tier.id === RAREST_TIER_ID) rareUsed = true;
-    tierIds.push(tier.id);
+    const source = pool.length > 0 ? pool : tier.cards;
+    const idx = Math.floor(Math.random() * source.length);
+    const template = source[idx];
+    if (source === pool) pool.splice(idx, 1);
+    cards.push({ ...template, tier: tier.id, tierLabel: tier.label, instanceId: nextInstanceId++ });
   }
-  return tierIds;
+  return cards;
 }
 
 module.exports = {
@@ -240,6 +366,6 @@ module.exports = {
   RAREST_TIER_ID,
   drawCard,
   drawCards,
-  drawCardsForTiers,
-  rollSegmentTierSet
+  drawCardsFromTier,
+  rollSegmentTier
 };

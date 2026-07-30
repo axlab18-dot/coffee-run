@@ -6,7 +6,7 @@ const { Server } = require('socket.io');
 const { createLobby, addPlayer, removePlayer, setReady, allReady } = require('./lobby');
 const { createPlayer } = require('./player');
 const { createRound, tickRound, resolveGacha, startDiceSpin } = require('./round');
-const { useHeldItem } = require('./effects');
+const { useHeldItem, computeSpeed } = require('./effects');
 const { TICK_RATE } = require('./constants');
 
 function createGameServer() {
@@ -28,6 +28,16 @@ function createGameServer() {
 
   const lobby = createLobby();
   let round = null;
+  let botCounter = 0;
+  let returnToLobbyScheduled = false;
+
+  function maybeStartRound() {
+    if (allReady(lobby) && !round) {
+      const players = lobby.players.map((p) => createPlayer(p.id, p.name, p.isBot));
+      round = createRound(players);
+      io.emit('track', round.track);
+    }
+  }
 
   function broadcastLobby() {
     io.emit('lobby-state', lobby);
@@ -47,15 +57,20 @@ function createGameServer() {
         return {
           id: p.id,
           name: p.name,
+          isBot: p.isBot,
           x: p.x,
           laneIndex: p.laneIndex,
           checkpointsDone: p.checkpointsDone,
+          speed: Math.round(computeSpeed(round, p)),
+          accelCount: p.accelCount,
+          decelCount: p.decelCount,
           gachaState: isViewer ? p.gachaState : p.gachaState ? { picking: true } : null,
           heldItem: isViewer ? p.heldItem : null,
           hasItem: !!p.heldItem,
           diceState: p.diceState,
           diceResult: p.diceResult,
           finished: p.finished,
+          finishTimeMs: p.finishTimeMs,
           rank: p.rank || null,
           resultReason: p.resultReason,
           guaranteedRank: p.guaranteedRank
@@ -81,12 +96,27 @@ function createGameServer() {
     socket.on('ready', (isReady) => {
       setReady(lobby, socket.id, !!isReady);
       broadcastLobby();
+      maybeStartRound();
+    });
 
-      if (allReady(lobby) && !round) {
-        const players = lobby.players.map((p) => createPlayer(p.id, p.name));
-        round = createRound(players);
-        io.emit('track', round.track);
-      }
+    // Bots have no client, so testing solo needs stand-ins: they join
+    // already-ready and pick/act on their own inside round.js's tick loop.
+    socket.on('add-bot', () => {
+      botCounter += 1;
+      const botId = `bot-${botCounter}`;
+      if (lobby.players.some((p) => p.id === botId)) return;
+      addPlayer(lobby, botId, `봇 ${botCounter}`, true);
+      setReady(lobby, botId, true);
+      broadcastLobby();
+      maybeStartRound();
+    });
+
+    socket.on('remove-bot', (botId) => {
+      const target = lobby.players.find((p) => p.id === botId && p.isBot);
+      if (!target) return;
+      removePlayer(lobby, botId);
+      if (round) round.players = round.players.filter((p) => p.id !== botId);
+      broadcastLobby();
     });
 
     socket.on('gacha-pick', (optionIndex) => {
@@ -125,10 +155,14 @@ function createGameServer() {
     if (round) {
       tickRound(round, dt);
       broadcastRound();
-      if (round.phase === 'finished') {
+      if (round.phase === 'finished' && !returnToLobbyScheduled) {
+        returnToLobbyScheduled = true;
         setTimeout(() => {
           round = null;
-          for (const p of lobby.players) p.ready = false;
+          returnToLobbyScheduled = false;
+          // Bots have no client to click Ready again, so they stay ready;
+          // real players go back to the lobby and must ready up manually.
+          for (const p of lobby.players) p.ready = p.isBot;
           broadcastLobby();
         }, 6000);
       }

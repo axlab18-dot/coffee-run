@@ -6,7 +6,13 @@ const { ROUND_TIME_LIMIT_MS, BASE_SPEED, DICE_SPIN_MS, DICE_AUTO_ROLL_MS } = req
 
 function fixedTrackRound(players) {
   const round = createRound(players);
-  round.track = { trackLength: 5000, checkpoints: [0, 1000, 2000, 3000, 4000] };
+  // segmentTracks: [1,2,3,4,5] = 보통길/풀밭/불바다/빙판/가시밭, one per segment,
+  // matching the real shape createTrack() produces (see server/track.js).
+  round.track = {
+    trackLength: 5000,
+    checkpoints: [0, 1000, 2000, 3000, 4000],
+    segmentTracks: [1, 2, 3, 4, 5]
+  };
   return round;
 }
 
@@ -76,6 +82,34 @@ test('the round stays in racing phase until every player has finished', () => {
   assert.strictEqual(round.players[0].finished, true);
   assert.strictEqual(round.players[1].finished, false);
   assert.strictEqual(round.phase, 'racing');
+});
+
+test('finishing records the round\'s elapsed time as finishTimeMs', () => {
+  const players = [createPlayer('p1', 'Alice')];
+  const round = fixedTrackRound(players);
+  round.players[0].checkpointsDone = 5;
+  round.players[0].x = 4999;
+  round.elapsedMs = 12345;
+
+  tickRound(round, 0.02); // small dt: crosses the finish line this tick
+
+  assert.strictEqual(round.players[0].finished, true);
+  assert.ok(round.players[0].finishTimeMs >= 12345);
+});
+
+test('a player gets a provisional rank the instant they finish, before anyone else has arrived', () => {
+  const players = [createPlayer('p1', 'Alice'), createPlayer('p2', 'Bob')];
+  const round = fixedTrackRound(players);
+  round.players.forEach((p) => {
+    p.checkpointsDone = 5;
+  });
+
+  round.players[0].x = 5000; // Alice finishes; Bob is still racing
+  tickRound(round, 0);
+
+  assert.strictEqual(round.players[0].rank, 1);
+  assert.strictEqual(round.players[1].rank, null); // Bob hasn't finished yet
+  assert.strictEqual(round.phase, 'racing'); // round isn't over
 });
 
 test('ranks are assigned in finish order once everyone has arrived', () => {

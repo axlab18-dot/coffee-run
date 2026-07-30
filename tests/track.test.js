@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { createTrack, isPastFinish } = require('../server/track');
+const { createTrack, isPastFinish, TRACKS } = require('../server/track');
 const { BASE_SPEED, TRACK_MIN_SECONDS, TRACK_MAX_SECONDS, NUM_SEGMENTS } = require('../server/constants');
 
 test('createTrack produces a length within the 30-60s (at base speed) range', () => {
@@ -22,4 +22,23 @@ test('createTrack splits the track into NUM_SEGMENTS (5) even checkpoints', () =
 test('isPastFinish is true only at or beyond the given track length', () => {
   assert.strictEqual(isPastFinish(2999, 3000), false);
   assert.strictEqual(isPastFinish(3000, 3000), true);
+});
+
+test('createTrack assigns one segmentTrack per segment, all 5 track types exactly once', () => {
+  for (let i = 0; i < 50; i++) {
+    const { segmentTracks } = createTrack();
+    assert.strictEqual(segmentTracks.length, NUM_SEGMENTS);
+    assert.deepStrictEqual(
+      [...segmentTracks].sort((a, b) => a - b),
+      TRACKS.map((t) => t.id).sort((a, b) => a - b)
+    );
+  }
+});
+
+test('different rounds get independently shuffled track orders (not always the same order)', () => {
+  const orders = new Set();
+  for (let i = 0; i < 100; i++) {
+    orders.add(createTrack().segmentTracks.join(','));
+  }
+  assert.ok(orders.size > 1, 'expected more than one distinct shuffled order across many rounds');
 });
