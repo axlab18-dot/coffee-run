@@ -12,6 +12,7 @@ const {
 } = require('../server/effects');
 const { BASE_SPEED } = require('../server/constants');
 const { TRACK_PAVED_ID, TRACK_GRASS_ID, TRACK_LAVA_ID, TRACK_ICE_ID, TRACK_THORN_ID } = require('../server/track');
+const { itemByKey } = require('../server/equipment');
 
 // segmentTracks: [1,2,3,4,5] = 보통길/풀밭/불바다/빙판/가시밭, one per segment.
 // A player who hasn't picked any gacha yet (checkpointsDone === 0) is
@@ -30,6 +31,12 @@ function makeRound(players) {
 
 function fixedPlayer(id, name) {
   return createPlayer(id, name);
+}
+
+function equippedPlayer(id, name, itemKeys) {
+  const player = createPlayer(id, name);
+  player.equippedItems = itemKeys.map((key) => itemByKey(key));
+  return player;
 }
 
 const SEG1 = 1.2; // segment index 0 = 보통길, whose nominal speedMultiplier is x1.2
@@ -732,4 +739,124 @@ test('중격변 (shuffleRandomSegments, count 3) reassigns exactly 3 segment slo
   const changedCount = round.track.segmentTracks.filter((id, i) => id !== [1, 2, 3, 4, 5][i]).length;
   assert.ok(changedCount <= 3, `expected at most 3 segments to change, got ${changedCount}`);
   for (const id of round.track.segmentTracks) assert.ok(id >= 1 && id <= 5);
+});
+
+// ---- 착용 아이템 (equipped items, bought pre-round — see server/equipment.js) ----
+
+test('런닝화 (globalAccel) applies its multiplier regardless of track', () => {
+  const alice = equippedPlayer('a', 'Alice', ['running-shoes']);
+  const round = makeRound([alice]);
+
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2);
+});
+
+test('힐리스 (trackAccelBonus) only applies while on its specific track', () => {
+  const alice = equippedPlayer('a', 'Alice', ['heelys']); // bonus on track 1 (보통길)
+  const round = makeRound([alice]);
+
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2); // segment 0 = 보통길
+
+  alice.checkpointsDone = 2; // segment index 1 = 풀밭 — bonus shouldn't apply
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 5); // just the passive-less 풀밭 comeback bonus
+});
+
+test('경주마 (leaderAccel) only applies while currently in the lead', () => {
+  const alice = equippedPlayer('a', 'Alice', ['racehorse']);
+  const bob = fixedPlayer('b', 'Bob');
+  alice.x = 500;
+  bob.x = 100;
+  const round = makeRound([alice, bob]);
+
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 1.5); // alice is leading
+
+  bob.x = 900; // now bob leads
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1); // bonus gone
+});
+
+test('소화기 (lavaMastery) doubles speed on 불바다 and skips the post-crossing slow', () => {
+  const alice = equippedPlayer('a', 'Alice', ['extinguisher']);
+  alice.checkpointsDone = 3; // segment index 2 = 불바다
+  const round = makeRound([alice]);
+
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 2.5 * 2);
+
+  handleTrackTransition(round, alice, 3); // leaving 불바다 (index 2) into index 3
+  assert.strictEqual(round.effects.some((e) => e.kind === 'multiplier' && e.sourceId === alice.id), false);
+});
+
+test('아이젠 (ignoreTrackHazard) skips 빙판\'s post-crossing stun entirely', () => {
+  const alice = equippedPlayer('a', 'Alice', ['crampons']);
+  const round = makeRound([alice]);
+  round.track.segmentTracks = [TRACK_ICE_ID, TRACK_PAVED_ID, TRACK_GRASS_ID, TRACK_LAVA_ID, TRACK_ICE_ID];
+
+  const originalRandom = Math.random;
+  Math.random = () => 0; // would always trigger the 75% stun otherwise
+  handleTrackTransition(round, alice, 1); // leaving 빙판 (index 0)
+  Math.random = originalRandom;
+
+  assert.strictEqual(round.effects.length, 0);
+});
+
+test('무지개반사판 (immuneToAllDecel) ignores every incoming slow-down', () => {
+  const alice = equippedPlayer('a', 'Alice', ['rainbow-shield']);
+  const bob = fixedPlayer('b', 'Bob');
+  const round = makeRound([alice, bob]);
+
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeedMultiplier', factor: 0.1 } });
+
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1);
+});
+
+test('찐득이 (incomingDecelDampen) softens an incoming slow-down toward neutral', () => {
+  const alice = equippedPlayer('a', 'Alice', ['sticky']);
+  const bob = fixedPlayer('b', 'Bob');
+  const round = makeRound([alice, bob]);
+
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeedMultiplier', factor: 0.5 } });
+
+  const dampened = 1 - (1 - 0.5) * (1 / 3);
+  assert.ok(Math.abs(computeSpeed(round, alice) - BASE_SPEED * SEG1 * dampened) < 1e-9);
+});
+
+test('자석 (magnetClamp) keeps every other racer within ±100 of the wearer\'s speed', () => {
+  const alice = equippedPlayer('a', 'Alice', ['magnet']);
+  const bob = fixedPlayer('b', 'Bob');
+  const round = makeRound([alice, bob]);
+
+  applyCard(round, bob, { kind: 'item', itemEffect: { kind: 'multiplier', value: 10, durationMs: 3000 } });
+  useHeldItem(round, bob);
+
+  const aliceSpeed = computeSpeed(round, alice);
+  const bobSpeed = computeSpeed(round, bob);
+  assert.ok(bobSpeed <= aliceSpeed + 100 + 1e-9, `expected bob's speed (${bobSpeed}) clamped near alice's (${aliceSpeed})`);
+});
+
+test('쓰래빠 (blockFirstDecel) voids only the first decel effect that would land, then stops protecting', () => {
+  const alice = equippedPlayer('a', 'Alice', ['slipper']);
+  const bob = fixedPlayer('b', 'Bob');
+  const round = makeRound([alice, bob]);
+
+  applyCard(round, bob, { kind: 'item', tier: 1, itemEffect: { kind: 'override', scope: 'others', value: 0, durationMs: 3000 } });
+  useHeldItem(round, bob);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1); // first hit voided
+  assert.strictEqual(alice.blockedFirstDecel, true);
+
+  applyCard(round, bob, { kind: 'item', tier: 1, itemEffect: { kind: 'override', scope: 'others', value: -50, durationMs: 3000 } });
+  useHeldItem(round, bob);
+  assert.strictEqual(computeSpeed(round, alice), -50 * SEG1); // protection already used up
+});
+
+test('쪼리 (firstAccelDouble) doubles only the first self-accel effect, then stops', () => {
+  const alice = equippedPlayer('a', 'Alice', ['flip-flop']);
+  const round = makeRound([alice]);
+
+  applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'multiplier', value: 3, durationMs: 3000 } });
+  useHeldItem(round, alice);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 6); // 3 doubled to 6
+  assert.strictEqual(alice.firstAccelDoubled, true);
+
+  tickEffects(round, 3.1); // let the first multiplier expire
+  applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'multiplier', value: 4, durationMs: 3000 } });
+  useHeldItem(round, alice);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 4); // no longer doubled
 });

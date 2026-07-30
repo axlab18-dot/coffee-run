@@ -14,6 +14,19 @@
   <div id="lobby" style="display:none;">
     <h1>Coffee Run</h1>
     <ul id="player-list"></ul>
+    <div id="equip-shop">
+      <h3>착용 아이템 상점 (<span id="equip-tokens">10</span> 토큰)</h3>
+      <ul id="equipped-list"></ul>
+      <button id="roll-equip-button">🎲 아이템 뽑기 (<span id="equip-rolls-left">3</span>회 남음)</button>
+      <div id="equip-offer" style="display:none;">
+        <p>등급 <span id="equip-offer-tier"></span>성 중 하나 선택! (<span id="equip-offer-timer">5</span>초)</p>
+        <div id="equip-offer-cards">
+          <button id="equip-card-0" class="equip-card"></button>
+          <button id="equip-card-1" class="equip-card"></button>
+          <button id="equip-card-2" class="equip-card"></button>
+        </div>
+      </div>
+    </div>
     <button id="ready-button">Ready</button>
     <button id="add-bot-button">봇 추가</button>
     <div class="controls-hint">1 / 2 / 3 뽑기 선택 · Space 아이템 사용 / 주사위 굴리기</div>

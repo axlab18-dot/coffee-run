@@ -3,7 +3,17 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
-const { createLobby, addPlayer, removePlayer, setReady, allReady } = require('./lobby');
+const {
+  createLobby,
+  addPlayer,
+  removePlayer,
+  setReady,
+  allReady,
+  resetEquipShop,
+  rollEquipDice,
+  resolveEquipOffer,
+  tickEquipOffers
+} = require('./lobby');
 const { createPlayer } = require('./player');
 const { createRound, tickRound, resolveGacha, startDiceSpin } = require('./round');
 const { useHeldItem, computeSpeed } = require('./effects');
@@ -33,7 +43,7 @@ function createGameServer() {
 
   function maybeStartRound() {
     if (allReady(lobby) && !round) {
-      const players = lobby.players.map((p) => createPlayer(p.id, p.name, p.isBot));
+      const players = lobby.players.map((p) => createPlayer(p.id, p.name, p.isBot, p.equippedItems));
       round = createRound(players);
       io.emit('track', round.track);
     }
@@ -119,6 +129,22 @@ function createGameServer() {
       broadcastLobby();
     });
 
+    // 착용 아이템 shop (pre-round lobby only): roll the die, then optionally
+    // pick from the 3-card offer it opens (or let it auto-resolve on timeout).
+    socket.on('roll-equip-dice', () => {
+      const player = lobby.players.find((p) => p.id === socket.id);
+      if (!player) return;
+      rollEquipDice(player);
+      broadcastLobby();
+    });
+
+    socket.on('pick-equip-item', (itemKey) => {
+      const player = lobby.players.find((p) => p.id === socket.id);
+      if (!player || !player.equipOffer) return;
+      resolveEquipOffer(player, String(itemKey || ''));
+      broadcastLobby();
+    });
+
     socket.on('gacha-pick', (optionIndex) => {
       if (!round) return;
       const player = round.players.find((p) => p.id === socket.id);
@@ -152,6 +178,16 @@ function createGameServer() {
 
   const dt = 1 / TICK_RATE;
   setInterval(() => {
+    if (!round) {
+      // 착용 아이템 shop offers auto-resolve after their pick window, same as
+      // the in-race gacha — only worth broadcasting if one just resolved.
+      const playersWithOffers = lobby.players.filter((p) => p.equipOffer);
+      if (playersWithOffers.length > 0) {
+        tickEquipOffers(lobby, dt);
+        if (playersWithOffers.some((p) => !p.equipOffer)) broadcastLobby();
+      }
+    }
+
     if (round) {
       tickRound(round, dt);
       broadcastRound();
@@ -162,6 +198,8 @@ function createGameServer() {
           returnToLobbyScheduled = false;
           // Bots have no client to click Ready again, so they stay ready;
           // real players go back to the lobby and must ready up manually.
+          // The equip shop also refreshes to a full budget for next round.
+          resetEquipShop(lobby);
           for (const p of lobby.players) p.ready = p.isBot;
           broadcastLobby();
         }, 6000);

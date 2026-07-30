@@ -29,6 +29,29 @@ function bumpDecel(player) {
   player.decelCount = (player.decelCount || 0) + 1;
 }
 
+// 착용 아이템 (equipped items, bought pre-round — see server/equipment.js):
+// active for the whole game, unlike in-race gacha items/passives.
+function hasEquip(player, key) {
+  return player.equippedItems.some((item) => item.key === key);
+}
+
+// 쓰래빠: blocks the first decel effect that would ever land on this player,
+// once. Call at each decel-creation site for the specific target(s) about to
+// be hit; returns true (and consumes the item) if this hit should be voided.
+function tryBlockDecelWithSlipper(player) {
+  if (player.blockedFirstDecel || !hasEquip(player, 'slipper')) return false;
+  player.blockedFirstDecel = true;
+  return true;
+}
+
+// 쪼리: doubles the value of the first self-accel effect this player ever
+// creates (가속 아이템 또는 달려달려 패시브), once.
+function maybeDoubleFirstAccel(player, effect) {
+  if (player.firstAccelDoubled || !hasEquip(player, 'flip-flop')) return;
+  player.firstAccelDoubled = true;
+  effect.value *= 2;
+}
+
 function setSegmentTrackRange(round, startIndex, count, trackId) {
   for (let i = startIndex; i < startIndex + count; i++) {
     if (i >= 0 && i < round.track.segmentTracks.length) round.track.segmentTracks[i] = trackId;
@@ -37,25 +60,33 @@ function setSegmentTrackRange(round, startIndex, count, trackId) {
 
 function applyPassive(round, player, passiveEffect, tierRank) {
   if (passiveEffect.kind === 'selfSpeedMultiplier') {
-    round.effects.push({
+    const effect = {
       sourceId: player.id,
       scope: 'self',
       kind: 'permanentMultiplier',
       value: passiveEffect.factor,
       tierRank,
       seq: nextEffectSeq(round)
-    });
+    };
+    maybeDoubleFirstAccel(player, effect);
+    round.effects.push(effect);
     bumpAccel(player);
   } else if (passiveEffect.kind === 'othersSpeedMultiplier') {
+    const blockedIds = activeRacers(round, player.id)
+      .filter((other) => tryBlockDecelWithSlipper(other))
+      .map((other) => other.id);
     round.effects.push({
       sourceId: player.id,
       scope: 'others',
       kind: 'permanentMultiplier',
       value: passiveEffect.factor,
       tierRank,
-      seq: nextEffectSeq(round)
+      seq: nextEffectSeq(round),
+      excludeIds: blockedIds
     });
-    for (const other of activeRacers(round, player.id)) bumpDecel(other);
+    for (const other of activeRacers(round, player.id)) {
+      if (!blockedIds.includes(other.id)) bumpDecel(other);
+    }
   } else if (passiveEffect.kind === 'trackMultiplierOverride') {
     // While the picker is on `trackId`, add `multiplier` to that track's own
     // rate for this player — "이 효과는 뽑는 만큼 누적됨": each additional pick
@@ -128,6 +159,12 @@ function useHeldItem(round, player) {
   const tierRank = TIER_RANK[card.tier] || 0;
 
   if (effect.kind === 'override') {
+    const isDecel = effect.value < BASE_SPEED;
+    const blockedIds = isDecel
+      ? activeRacers(round, player.id)
+          .filter((other) => tryBlockDecelWithSlipper(other))
+          .map((other) => other.id)
+      : [];
     round.effects.push({
       sourceId: player.id,
       scope: effect.scope,
@@ -135,23 +172,28 @@ function useHeldItem(round, player) {
       value: effect.value,
       tierRank,
       seq: nextEffectSeq(round),
-      remainingMs: effect.durationMs
+      remainingMs: effect.durationMs,
+      excludeIds: blockedIds
     });
-    if (effect.value < BASE_SPEED) {
-      for (const other of activeRacers(round, player.id)) bumpDecel(other);
+    if (isDecel) {
+      for (const other of activeRacers(round, player.id)) {
+        if (!blockedIds.includes(other.id)) bumpDecel(other);
+      }
     }
   } else if (effect.kind === 'resetAll') {
     for (const p of round.players) p.x = 0;
     round.forcedAutoGachaRemaining = 1;
   } else if (effect.kind === 'multiplier') {
-    round.effects.push({
+    const pushed = {
       sourceId: player.id,
       kind: 'multiplier',
       value: effect.value,
       tierRank,
       seq: nextEffectSeq(round),
       remainingMs: effect.durationMs
-    });
+    };
+    if (effect.value > 1) maybeDoubleFirstAccel(player, pushed);
+    round.effects.push(pushed);
     if (effect.value > 1) bumpAccel(player);
   } else if (effect.kind === 'forcedMove') {
     // 중력맨(toward)/반중력맨(away)/블랙홀(toward): for the duration, each
@@ -194,6 +236,7 @@ function useHeldItem(round, player) {
     for (const other of activeRacers(round, player.id)) {
       const roll = Math.floor(Math.random() * 3);
       if (roll === 0) {
+        if (tryBlockDecelWithSlipper(other)) continue;
         round.effects.push({
           sourceId: player.id,
           scope: 'target',
@@ -206,6 +249,7 @@ function useHeldItem(round, player) {
         });
         bumpDecel(other);
       } else if (roll === 1) {
+        if (tryBlockDecelWithSlipper(other)) continue;
         round.effects.push({
           sourceId: player.id,
           scope: 'target',
@@ -258,6 +302,7 @@ function useHeldItem(round, player) {
     for (const other of activeRacers(round, player.id)) {
       const roll = effect.min + Math.floor(Math.random() * (effect.max - effect.min + 1));
       const value = 1 / roll;
+      if (value < 1 && tryBlockDecelWithSlipper(other)) continue;
       round.effects.push({
         sourceId: other.id,
         kind: 'multiplier',
@@ -315,6 +360,7 @@ function pickPriorityEffect(effects) {
 }
 
 function targetsPlayer(effect, player) {
+  if (effect.excludeIds && effect.excludeIds.includes(player.id)) return false;
   if (effect.scope === 'self') return effect.sourceId === player.id;
   if (effect.scope === 'others') return effect.sourceId !== player.id;
   if (effect.scope === 'target') return effect.targetId === player.id;
@@ -334,20 +380,28 @@ function currentTrackId(round, player) {
 // 빙판(ICE) grants immunity to incoming slow-downs; 가시밭(THORN) grants
 // immunity to incoming speed-ups (from either items or passives) — both per
 // coffee run.md. "Slow"/"speed-up" is just the sign of the effect's
-// value/ratio relative to a neutral baseline.
-function computeSpeed(round, player) {
+// value/ratio relative to a neutral baseline. `opts.skipMagnet` avoids
+// infinite recursion when 자석 clamps another player's speed against this
+// player's own (see below).
+function computeSpeed(round, player, opts = {}) {
   // The dice-roll "final sprint" is a fixed, fully-determined speed for the
   // rest of the race — it bypasses every other effect and the track below.
   if (player.diceSpeed != null) return player.diceSpeed;
 
   const trackId = currentTrackId(round, player);
   const track = trackById(trackId);
+  const bypassThornRestriction = hasEquip(player, 'safety-shoes') || hasEquip(player, 'moses');
   const ignoreSlow = trackId === TRACK_ICE_ID;
-  const ignoreSpeedUp = trackId === TRACK_THORN_ID;
+  const ignoreSpeedUp = trackId === TRACK_THORN_ID && !bypassThornRestriction;
+  // 무지개반사판: full immunity to incoming decel. 찐득이: incoming decel
+  // (additive delta or multiplicative ratio) is dampened toward neutral.
+  const immuneToDecel = hasEquip(player, 'rainbow-shield');
+  const decelDampen = hasEquip(player, 'sticky') ? 1 / 3 : 1;
+  const ignoresDecel = ignoreSlow || immuneToDecel;
 
   const overrides = round.effects.filter((e) => e.kind === 'override' && targetsPlayer(e, player));
   const usableOverrides = overrides.filter((e) => {
-    if (ignoreSlow && e.value < BASE_SPEED) return false;
+    if (ignoresDecel && e.value < BASE_SPEED) return false;
     if (ignoreSpeedUp && e.value > BASE_SPEED) return false;
     return true;
   });
@@ -364,9 +418,13 @@ function computeSpeed(round, player) {
     for (const effect of round.effects) {
       if (['override', 'multiplier', 'permanentMultiplier', 'trackMultiplierOverride'].includes(effect.kind)) continue;
       if (!targetsPlayer(effect, player)) continue;
-      if (ignoreSlow && effect.value < 0) continue;
       if (ignoreSpeedUp && effect.value > 0) continue;
-      rawSpeed += effect.value;
+      if (effect.value < 0) {
+        if (ignoresDecel) continue;
+        rawSpeed += effect.value * decelDampen;
+      } else {
+        rawSpeed += effect.value;
+      }
     }
   }
 
@@ -378,9 +436,32 @@ function computeSpeed(round, player) {
     if (effect.kind !== 'multiplier' && effect.kind !== 'permanentMultiplier') continue;
     const appliesToMe = effect.scope ? targetsPlayer(effect, player) : effect.sourceId === player.id;
     if (!appliesToMe) continue;
-    if (ignoreSlow && effect.value < 1) continue;
     if (ignoreSpeedUp && effect.value > 1) continue;
-    rawSpeed *= effect.value;
+    if (effect.value < 1) {
+      if (ignoresDecel) continue;
+      rawSpeed *= 1 - (1 - effect.value) * decelDampen;
+    } else {
+      rawSpeed *= effect.value;
+    }
+  }
+
+  // 착용 아이템의 가속 계열 보너스 (힐리스/운동화/스케이트/런닝화/발냄새/경주마/
+  // 소화기) — 가시밭의 "빨라짐 무시" 제약을 그대로 받는다(안전화/모세로 우회한
+  // 경우가 아니면 여기서도 적용되지 않음).
+  if (!ignoreSpeedUp) {
+    for (const item of player.equippedItems) {
+      const eff = item.effect;
+      if (eff.kind === 'globalAccel') {
+        rawSpeed *= eff.multiplier;
+      } else if (eff.kind === 'trackAccelBonus' && trackId === eff.trackId) {
+        rawSpeed *= eff.multiplier;
+      } else if (eff.kind === 'lavaMastery' && trackId === TRACK_LAVA_ID) {
+        rawSpeed *= eff.multiplier;
+      } else if (eff.kind === 'leaderAccel') {
+        const ranked = rankedRacers(round);
+        if (ranked.length > 0 && ranked[0].id === player.id) rawSpeed *= eff.multiplier;
+      }
+    }
   }
 
   let trackMultiplier = track.speedMultiplier;
@@ -405,6 +486,19 @@ function computeSpeed(round, player) {
     // to how far above base speed the player currently sits.
     const excess = Math.max(0, finalSpeed - BASE_SPEED);
     finalSpeed -= excess * 0.3;
+  }
+
+  // 자석: no other active racer may end up more than `range` away from the
+  // wearer's own speed. Computed against the wearer's speed *without* any
+  // magnet clamping applied (skipMagnet) so two mutual magnet-wearers can
+  // never recurse into each other.
+  if (!opts.skipMagnet) {
+    for (const other of round.players) {
+      if (other.id === player.id || other.finished) continue;
+      if (!hasEquip(other, 'magnet')) continue;
+      const wearerSpeed = computeSpeed(round, other, { skipMagnet: true });
+      finalSpeed = Math.min(wearerSpeed + 100, Math.max(wearerSpeed - 100, finalSpeed));
+    }
   }
 
   return finalSpeed;
@@ -436,22 +530,26 @@ function handleTrackTransition(round, player, prevCheckpointsDone) {
 
   const leftTrackId = round.track.segmentTracks[prevCheckpointsDone - 1];
   const enteringTrackId = round.track.segmentTracks[player.checkpointsDone - 1];
+  const skipLavaHazard = hasEquip(player, 'safety-shoes') || hasEquip(player, 'extinguisher') || hasEquip(player, 'moses');
+  const skipIceHazard = hasEquip(player, 'crampons') || hasEquip(player, 'moses');
 
   if (leftTrackId === TRACK_LAVA_ID) {
     // "불바다 다음이 빙판일 경우 트랙 효과는 무효화 됨" — no need for a special
     // case: 빙판's own slow-immunity in computeSpeed already ignores this
     // multiplier (<1) the moment the player is standing on 빙판.
-    round.effects.push({
-      sourceId: player.id,
-      kind: 'multiplier',
-      value: 0.3,
-      tierRank: 0,
-      seq: nextEffectSeq(round),
-      remainingMs: 3000
-    });
-    if (enteringTrackId !== TRACK_ICE_ID) bumpDecel(player);
+    if (!skipLavaHazard && !tryBlockDecelWithSlipper(player)) {
+      round.effects.push({
+        sourceId: player.id,
+        kind: 'multiplier',
+        value: 0.3,
+        tierRank: 0,
+        seq: nextEffectSeq(round),
+        remainingMs: 3000
+      });
+      if (enteringTrackId !== TRACK_ICE_ID) bumpDecel(player);
+    }
   } else if (leftTrackId === TRACK_ICE_ID) {
-    if (Math.random() < 0.75) {
+    if (!skipIceHazard && Math.random() < 0.75 && !tryBlockDecelWithSlipper(player)) {
       round.effects.push({
         sourceId: player.id,
         scope: 'self',

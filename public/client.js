@@ -21,6 +21,14 @@ const diceOverlayEl = document.getElementById('dice-overlay');
 const diceFaceEl = document.getElementById('dice-face');
 const diceHintEl = document.getElementById('dice-hint');
 const liveRankListEl = document.getElementById('live-rank-list');
+const equipTokensEl = document.getElementById('equip-tokens');
+const equippedListEl = document.getElementById('equipped-list');
+const rollEquipButton = document.getElementById('roll-equip-button');
+const equipRollsLeftEl = document.getElementById('equip-rolls-left');
+const equipOfferEl = document.getElementById('equip-offer');
+const equipOfferTierEl = document.getElementById('equip-offer-tier');
+const equipOfferTimerEl = document.getElementById('equip-offer-timer');
+const equipCardEls = [0, 1, 2].map((i) => document.getElementById(`equip-card-${i}`));
 
 let isReady = false;
 let showingResults = false;
@@ -81,7 +89,71 @@ addBotButton.addEventListener('click', () => {
   socket.emit('add-bot');
 });
 
+rollEquipButton.addEventListener('click', () => {
+  socket.emit('roll-equip-dice');
+});
+
+equipCardEls.forEach((el, i) => {
+  el.addEventListener('click', () => {
+    const key = el.dataset.key;
+    if (key) socket.emit('pick-equip-item', key);
+  });
+});
+
+const EQUIP_MAX_ROLLS = 3;
+let equipOfferCountdownId = null;
+let equipOfferRemainingMs = 0;
+let equipOfferTierShown = null;
+
+function stopEquipOfferCountdown() {
+  if (equipOfferCountdownId != null) clearInterval(equipOfferCountdownId);
+  equipOfferCountdownId = null;
+  equipOfferTierShown = null;
+}
+
+function updateEquipShop(lobby) {
+  const me = lobby.players.find((p) => p.id === myId);
+  if (!me) return;
+
+  equipTokensEl.textContent = me.tokens;
+  equippedListEl.innerHTML = '';
+  for (const item of me.equippedItems) {
+    const li = document.createElement('li');
+    li.textContent = item.label;
+    equippedListEl.appendChild(li);
+  }
+
+  const rollsLeft = EQUIP_MAX_ROLLS - me.rollsUsed;
+  equipRollsLeftEl.textContent = rollsLeft;
+  rollEquipButton.disabled = !!me.equipOffer || rollsLeft <= 0 || me.equippedItems.length >= 3 || isReady;
+
+  if (me.equipOffer) {
+    equipOfferEl.style.display = 'block';
+    equipOfferTierEl.textContent = me.equipOffer.tier;
+    me.equipOffer.options.forEach((item, i) => {
+      const el = equipCardEls[i];
+      if (!el) return;
+      el.dataset.key = item.key;
+      el.textContent = `${item.label} (${item.cost}토큰)`;
+    });
+
+    if (equipOfferTierShown !== me.equipOffer.tier) {
+      equipOfferTierShown = me.equipOffer.tier;
+      equipOfferRemainingMs = me.equipOffer.remainingMs;
+      stopEquipOfferCountdown();
+      equipOfferCountdownId = setInterval(() => {
+        equipOfferRemainingMs -= 200;
+        equipOfferTimerEl.textContent = Math.max(0, Math.ceil(equipOfferRemainingMs / 1000));
+      }, 200);
+    }
+  } else {
+    equipOfferEl.style.display = 'none';
+    stopEquipOfferCountdown();
+  }
+}
+
 socket.on('lobby-state', (lobby) => {
+  updateEquipShop(lobby);
   playerListEl.innerHTML = '';
   for (const player of lobby.players) {
     const li = document.createElement('li');

@@ -1,8 +1,11 @@
-function createPlayer(id, name, isBot = false) {
+function createPlayer(id, name, isBot = false, equippedItems = []) {
   return {
     id,
     name,
     isBot,
+    equippedItems,       // 착용 아이템: bought pre-round, active the whole game (see server/equipment.js)
+    blockedFirstDecel: false, // 쓰래빠 consumed?
+    firstAccelDoubled: false, // 쪼리 consumed?
     x: 0,
     laneIndex: 0,
     finished: false,
