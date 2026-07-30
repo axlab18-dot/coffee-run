@@ -13,7 +13,6 @@ test('createPlayer starts at x=0 with no gacha state, no held item, no rank', ()
   assert.strictEqual(p.finished, false);
   assert.strictEqual(p.rank, null);
   assert.strictEqual(p.guaranteedRank, false);
-  assert.strictEqual(p.isGiant, false);
   assert.strictEqual(p.finishTimeMs, null);
   assert.strictEqual(p.forcedMove, null);
   assert.strictEqual(p.accelCount, 0);

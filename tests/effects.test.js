@@ -8,7 +8,6 @@ const {
   tickEffects,
   removeSegmentEffectsFor,
   handleTrackTransition,
-  applyGiantStomps,
   tickForcedMove
 } = require('../server/effects');
 const { BASE_SPEED } = require('../server/constants');
@@ -82,64 +81,64 @@ test('segment effects are cleared when the picker enters their next gacha', () =
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1);
 });
 
-test('a passive self speed-up applies immediately and only speeds up the picker', () => {
+test('a passive self speed-up applies immediately and only speeds up the picker (multiplicative)', () => {
   const alice = fixedPlayer('a', 'Alice');
   const bob = fixedPlayer('b', 'Bob');
   const round = makeRound([alice, bob]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3) * SEG1);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2);
   assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * SEG1);
 });
 
-test('a passive others slow-down applies to everyone except the picker', () => {
+test('a passive others slow-down applies to everyone except the picker (multiplicative)', () => {
   const alice = fixedPlayer('a', 'Alice');
   const bob = fixedPlayer('b', 'Bob');
   const round = makeRound([alice, bob]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeed', amount: -3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeedMultiplier', factor: 1 / 2 } });
 
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1);
-  assert.strictEqual(computeSpeed(round, bob), (BASE_SPEED - 3) * SEG1);
+  assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * SEG1 * 0.5);
 });
 
-test('passives stack across multiple picks instead of replacing each other', () => {
+test('passives stack multiplicatively across multiple picks instead of replacing each other', () => {
   const alice = fixedPlayer('a', 'Alice');
   const round = makeRound([alice]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
-  applyCard(round, alice, { kind: 'passive', tier: 2, passiveEffect: { kind: 'selfSpeed', amount: 6 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
+  applyCard(round, alice, { kind: 'passive', tier: 2, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 3 } });
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3 + 6) * SEG1);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2 * 3);
 });
 
 test('passives persist across checkpoints, unlike segment effects', () => {
   const alice = fixedPlayer('a', 'Alice');
   const round = makeRound([alice]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
   removeSegmentEffectsFor(round, alice.id);
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3) * SEG1);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2);
 });
 
 test('passives never expire over time, unlike timed effects', () => {
   const alice = fixedPlayer('a', 'Alice');
   const round = makeRound([alice]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
   tickEffects(round, 999);
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3) * SEG1);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2);
 });
 
 test('speed scales with the current segment\'s track multiplier (round.track.segmentTracks)', () => {
   const alice = fixedPlayer('a', 'Alice');
   const round = makeRound([alice]); // segmentTracks: [1,2,3,4,5] -> x1.2,x2,x2.5,x3.5,x0.8
-  // Give alice a passive first so 풀밭's passive-less comeback bonus (x5)
-  // doesn't kick in and mask the segment's own nominal multiplier (x2).
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 0 } });
+  // Give alice a no-op passive first so 풀밭's passive-less comeback bonus
+  // (x5) doesn't kick in and mask the segment's own nominal multiplier (x2).
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 1 } });
   const expectedMultipliers = [1.2, 2, 2.5, 3.5, 0.8];
 
   for (let segment = 1; segment <= 5; segment++) {
@@ -161,9 +160,29 @@ test('풀밭\'s comeback bonus goes away the moment the player has any passive o
   alice.checkpointsDone = 2; // segment index 1 = 풀밭
   const round = makeRound([alice]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3) * 2);
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 2 * 2);
+});
+
+test('허명구의 가호 stacks additively on top of 풀밭\'s own rate each time it\'s picked', () => {
+  const alice = fixedPlayer('a', 'Alice');
+  alice.checkpointsDone = 2; // segment index 1 = 풀밭
+  const round = makeRound([alice]);
+
+  applyCard(round, alice, {
+    kind: 'passive',
+    tier: 1,
+    passiveEffect: { kind: 'trackMultiplierOverride', trackId: TRACK_GRASS_ID, multiplier: 5 }
+  });
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 5);
+
+  applyCard(round, alice, {
+    kind: 'passive',
+    tier: 1,
+    passiveEffect: { kind: 'trackMultiplierOverride', trackId: TRACK_GRASS_ID, multiplier: 5 }
+  });
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 10);
 });
 
 test('an item held by a player does nothing until used', () => {
@@ -356,22 +375,6 @@ test('tickForcedMove returns false and does nothing when the player has no force
   assert.strictEqual(tickForcedMove(round, alice, 1), false);
 });
 
-test('반중력맨 (antiGravityPush) only pushes racers currently behind the user, further back', () => {
-  const alice = fixedPlayer('a', 'Alice');
-  const bob = fixedPlayer('b', 'Bob'); // behind alice
-  const carol = fixedPlayer('c', 'Carol'); // ahead of alice
-  alice.x = 500;
-  bob.x = 200;
-  carol.x = 800;
-  const round = makeRound([alice, bob, carol]);
-
-  applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'antiGravityPush', amount: 300 } });
-  useHeldItem(round, alice);
-
-  assert.strictEqual(bob.x, 0); // 200 - 300, clamped at 0
-  assert.strictEqual(carol.x, 800); // ahead of alice, untouched
-});
-
 test('나와 N등 트랙 바꾸기 (swapWithRank) swaps positions with whoever currently holds that rank', () => {
   const alice = fixedPlayer('a', 'Alice');
   const bob = fixedPlayer('b', 'Bob');
@@ -436,21 +439,6 @@ test('역전의 용사 (reverseRace) mirrors every still-racing player across th
 
   assert.strictEqual(alice.x, 5000 - 1000);
   assert.strictEqual(bob.x, 4000); // finished, untouched
-});
-
-test('패트리어트 (patriotMissile) teleports every other active racer to a random point on the track', () => {
-  const alice = fixedPlayer('a', 'Alice');
-  const bob = fixedPlayer('b', 'Bob');
-  const carol = fixedPlayer('c', 'Carol');
-  carol.finished = true;
-  const carolX = carol.x;
-  const round = makeRound([alice, bob, carol]);
-
-  applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'patriotMissile' } });
-  useHeldItem(round, alice);
-
-  assert.ok(bob.x >= 0 && bob.x <= round.track.trackLength);
-  assert.strictEqual(carol.x, carolX); // finished players are never hit
 });
 
 test('지각 변동 (tectonicShift) applies one of slow/stop/lane-shift to every other active racer', () => {
@@ -520,13 +508,13 @@ test('괜찮아 (clearOthersPassives) removes every passive sourced by other pla
   const bob = fixedPlayer('b', 'Bob');
   const round = makeRound([alice, bob]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
-  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeed', amount: -3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeedMultiplier', factor: 0.5 } });
 
   applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'clearOthersPassives' } });
   useHeldItem(round, alice);
 
-  assert.strictEqual(computeSpeed(round, alice), (BASE_SPEED + 3) * SEG1); // own passive kept
+  assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1 * 2); // own passive kept
   assert.strictEqual(round.effects.some((e) => e.sourceId === bob.id), false); // bob's passive wiped
 });
 
@@ -535,12 +523,12 @@ test('안괜찮아 (swapPassivesRandom) transfers passive ownership between the 
   const bob = fixedPlayer('b', 'Bob');
   const round = makeRound([alice, bob]);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 3 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
   applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'swapPassivesRandom' } });
   useHeldItem(round, alice);
 
   // Alice's self-buff now belongs to Bob instead.
-  assert.strictEqual(computeSpeed(round, bob), (BASE_SPEED + 3) * SEG1);
+  assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * SEG1 * 2);
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * SEG1);
 });
 
@@ -607,18 +595,17 @@ test('ㅈ밥게임 (rewindOthersIfLeading) does nothing when the picker is not l
   assert.strictEqual(bob.x, 1500);
 });
 
-test('역전의 용사 also wipes every passive (including giant status) across all players', () => {
+test('역전의 용사 wipes every passive across all players', () => {
   const alice = fixedPlayer('a', 'Alice');
   const bob = fixedPlayer('b', 'Bob');
   const round = makeRound([alice, bob]);
 
-  applyCard(round, bob, { kind: 'passive', tier: 5, passiveEffect: { kind: 'giant', amount: 15 } });
-  assert.strictEqual(bob.isGiant, true);
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 3 } });
+  assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * SEG1 * 3);
 
   applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'reverseRace' } });
   useHeldItem(round, alice);
 
-  assert.strictEqual(bob.isGiant, false);
   assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * SEG1);
 });
 
@@ -636,38 +623,10 @@ test('자연인 허명구의 가호 (trackMultiplierOverride) replaces 풀밭\'s
   });
   // Give bob a passive of his own so the passive-less comeback bonus doesn't
   // also give him x5, letting this test isolate 허명구's own explicit x5.
-  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 0 } });
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 1 } });
 
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 5);
   assert.strictEqual(computeSpeed(round, bob), BASE_SPEED * 2); // unaffected, normal 풀밭 rate
-});
-
-test('거대화 (giant passive) grants +15 speed and unifies every segment to the current track', () => {
-  const alice = fixedPlayer('a', 'Alice');
-  alice.checkpointsDone = 3; // segment 3 = index 2 = 불바다 in the fixture
-  const round = makeRound([alice]);
-
-  applyCard(round, alice, { kind: 'passive', tier: 5, passiveEffect: { kind: 'giant', amount: 15 } });
-
-  assert.strictEqual(alice.isGiant, true);
-  assert.deepStrictEqual(round.track.segmentTracks, [TRACK_LAVA_ID, TRACK_LAVA_ID, TRACK_LAVA_ID, TRACK_LAVA_ID, TRACK_LAVA_ID]);
-});
-
-test('applyGiantStomps stuns a rival the first time the giant is ahead of them, but not again', () => {
-  const giant = fixedPlayer('a', 'Giant');
-  const rival = fixedPlayer('b', 'Rival');
-  giant.isGiant = true;
-  giant.x = 500;
-  rival.x = 400; // giant already ahead
-  const round = makeRound([giant, rival]);
-
-  applyGiantStomps(round);
-  const stunEffectsAfterFirst = round.effects.filter((e) => e.targetId === rival.id).length;
-  assert.strictEqual(stunEffectsAfterFirst, 1);
-  assert.strictEqual(computeSpeed(round, rival), 0);
-
-  applyGiantStomps(round); // still ahead, but already stomped once — no duplicate
-  assert.strictEqual(round.effects.filter((e) => e.targetId === rival.id).length, 1);
 });
 
 test('빙판(ICE) grants immunity to incoming slow-downs (overrides and negative additive effects)', () => {
@@ -678,7 +637,7 @@ test('빙판(ICE) grants immunity to incoming slow-downs (overrides and negative
 
   applyCard(round, bob, { kind: 'item', tier: 1, itemEffect: { kind: 'override', scope: 'others', value: 0, durationMs: 3000 } });
   useHeldItem(round, bob);
-  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeed', amount: -50 } });
+  applyCard(round, bob, { kind: 'passive', tier: 1, passiveEffect: { kind: 'othersSpeedMultiplier', factor: 0.1 } });
 
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 3.5); // both ignored, track multiplier still applies
 });
@@ -690,7 +649,7 @@ test('가시밭(THORN) grants immunity to incoming speed-ups (multipliers and po
 
   applyCard(round, alice, { kind: 'item', itemEffect: { kind: 'multiplier', value: 4, durationMs: 3000 } });
   useHeldItem(round, alice);
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 50 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 10 } });
 
   assert.strictEqual(computeSpeed(round, alice), BASE_SPEED * 0.8); // both ignored, but slow-downs still would apply
 });
@@ -704,10 +663,11 @@ test('painfulLife drags speed down proportional to how far above base speed it s
   const baselineExcess = BASE_SPEED * 1.2 - BASE_SPEED;
   assert.strictEqual(baseline, BASE_SPEED * 1.2 - baselineExcess * 0.3);
 
-  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeed', amount: 100 } });
+  applyCard(round, alice, { kind: 'passive', tier: 1, passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 } });
   const boosted = computeSpeed(round, alice);
-  const excess = (BASE_SPEED + 100) * 1.2 - BASE_SPEED;
-  assert.strictEqual(boosted, (BASE_SPEED + 100) * 1.2 - excess * 0.3);
+  const boostedRaw = BASE_SPEED * 2 * 1.2;
+  const excess = boostedRaw - BASE_SPEED;
+  assert.strictEqual(boosted, boostedRaw - excess * 0.3);
 });
 
 test('handleTrackTransition: leaving 불바다 applies a 3s x0.3 slow to the picker', () => {

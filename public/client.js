@@ -20,6 +20,7 @@ const itemBadgeEl = document.getElementById('item-badge');
 const diceOverlayEl = document.getElementById('dice-overlay');
 const diceFaceEl = document.getElementById('dice-face');
 const diceHintEl = document.getElementById('dice-hint');
+const liveRankListEl = document.getElementById('live-rank-list');
 
 let isReady = false;
 let showingResults = false;
@@ -109,6 +110,7 @@ socket.on('lobby-state', (lobby) => {
     latestState = null;
     finishAnnouncements = [];
     announcedFinishIds.clear();
+    liveRankListEl.innerHTML = '';
   }
 });
 
@@ -143,6 +145,7 @@ socket.on('round-state', (state) => {
   updateGachaOverlay(state);
   updateItemBadge(state);
   updateDiceOverlay(state);
+  updateLiveRankList(state);
 
   if (state.phase === 'finished' && !showingResults) {
     showingResults = true;
@@ -203,6 +206,26 @@ function updateDiceOverlay(state) {
     diceFaceEl.textContent = '?';
     diceHintEl.textContent = 'Space (또는 클릭)로 주사위를 굴리세요';
   }
+}
+
+// Real-time standings, leftmost on screen: finished players keep their
+// (possibly provisional) rank order, everyone still racing is ordered by
+// raw progress (x) since that's what actually determines finish order.
+function updateLiveRankList(state) {
+  const sorted = [...state.players].sort((a, b) => {
+    if (a.finished !== b.finished) return a.finished ? -1 : 1;
+    if (a.finished && b.finished) return (a.rank || 999) - (b.rank || 999);
+    return b.x - a.x;
+  });
+
+  liveRankListEl.innerHTML = '';
+  sorted.forEach((player) => {
+    const li = document.createElement('li');
+    const marker = player.id === myId ? '▶ ' : '';
+    li.textContent = `${marker}${player.name}`;
+    li.style.color = playerColor(player);
+    liveRankListEl.appendChild(li);
+  });
 }
 
 function formatFinishTime(ms) {

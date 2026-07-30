@@ -37,19 +37,19 @@ const TIERS = [
       },
       {
         key: 's1-passive-speed-up',
-        label: '패시브: 달려 달려 (내 달리기 속도 +3)',
+        label: '패시브: 달려 달려 (내 달리기 속도 x2)',
         kind: 'passive',
-        passiveEffect: { kind: 'selfSpeed', amount: 3 }
+        passiveEffect: { kind: 'selfSpeedMultiplier', factor: 2 }
       },
       {
         key: 's1-passive-slow-others',
-        label: '패시브: 느려 느려 (남 달리기 속도 -3)',
+        label: '패시브: 느려 느려 (남 달리기 속도 x1/2)',
         kind: 'passive',
-        passiveEffect: { kind: 'othersSpeed', amount: -3 }
+        passiveEffect: { kind: 'othersSpeedMultiplier', factor: 1 / 2 }
       },
       {
         key: 's1-passive-hermit-blessing',
-        label: '패시브: 자연인 허명구의 가호 (풀밭에서 배속 x5)',
+        label: '패시브: 자연인 허명구의 가호 (풀밭에서 배속 x5, 뽑을수록 누적)',
         kind: 'passive',
         passiveEffect: { kind: 'trackMultiplierOverride', trackId: TRACK_GRASS_ID, multiplier: 5 }
       }
@@ -104,15 +104,15 @@ const TIERS = [
       },
       {
         key: 's2-passive-speed-up',
-        label: '패시브: 달려 달려 (내 달리기 속도 +6)',
+        label: '패시브: 달려 달려 (내 달리기 속도 x3)',
         kind: 'passive',
-        passiveEffect: { kind: 'selfSpeed', amount: 6 }
+        passiveEffect: { kind: 'selfSpeedMultiplier', factor: 3 }
       },
       {
         key: 's2-passive-slow-others',
-        label: '패시브: 느려 느려 (남 달리기 속도 -6)',
+        label: '패시브: 느려 느려 (남 달리기 속도 x1/3)',
         kind: 'passive',
-        passiveEffect: { kind: 'othersSpeed', amount: -6 }
+        passiveEffect: { kind: 'othersSpeedMultiplier', factor: 1 / 3 }
       }
     ]
   },
@@ -159,9 +159,9 @@ const TIERS = [
       },
       {
         key: 's3-antigravity-1',
-        label: '아이템: 반중력맨 (내 뒤쪽 타인 뒤로 더 밀어내기 레벨 1)',
+        label: '아이템: 반중력맨 (내 뒤쪽 플레이어를 2초간 뒤로 밀어낸다)',
         kind: 'item',
-        itemEffect: { kind: 'antiGravityPush', amount: 300 }
+        itemEffect: { kind: 'forcedMove', mode: 'away', durationMs: 2000, onlyBehind: true }
       },
       {
         key: 's3-slippery',
@@ -171,15 +171,15 @@ const TIERS = [
       },
       {
         key: 's3-passive-speed-up',
-        label: '패시브: 달려 달려 (내 달리기 속도 +9)',
+        label: '패시브: 달려 달려 (내 달리기 속도 x4)',
         kind: 'passive',
-        passiveEffect: { kind: 'selfSpeed', amount: 9 }
+        passiveEffect: { kind: 'selfSpeedMultiplier', factor: 4 }
       },
       {
         key: 's3-passive-slow-others',
-        label: '패시브: 느려 느려 (남 달리기 속도 -9)',
+        label: '패시브: 느려 느려 (남 달리기 속도 x1/4)',
         kind: 'passive',
-        passiveEffect: { kind: 'othersSpeed', amount: -9 }
+        passiveEffect: { kind: 'othersSpeedMultiplier', factor: 1 / 4 }
       }
     ]
   },
@@ -232,15 +232,15 @@ const TIERS = [
       },
       {
         key: 's4-passive-speed-up',
-        label: '패시브: 달려 달려 (내 달리기 속도 +20)',
+        label: '패시브: 달려 달려 (내 달리기 속도 x5)',
         kind: 'passive',
-        passiveEffect: { kind: 'selfSpeed', amount: 20 }
+        passiveEffect: { kind: 'selfSpeedMultiplier', factor: 5 }
       },
       {
         key: 's4-passive-slow-others',
-        label: '패시브: 느려 느려 (남 달리기 속도 -20)',
+        label: '패시브: 느려 느려 (남 달리기 속도 x1/5)',
         kind: 'passive',
-        passiveEffect: { kind: 'othersSpeed', amount: -20 }
+        passiveEffect: { kind: 'othersSpeedMultiplier', factor: 1 / 5 }
       }
     ]
   },
@@ -262,22 +262,10 @@ const TIERS = [
         itemEffect: { kind: 'tectonicShift' }
       },
       {
-        key: 's5-patriot',
-        label: '아이템: 패트리어트 (모두에게 미사일 발사, 맞은 사용자는 트랙에 랜덤하게 떨어짐)',
-        kind: 'item',
-        itemEffect: { kind: 'patriotMissile' }
-      },
-      {
         key: 's5-sudden-chaos-dice',
         label: '아이템: 갑분주 (모두가 배속 주사위(1~6)를 얻음, 나는 무조건 6배)',
         kind: 'item',
         itemEffect: { kind: 'diceSpeedPassiveForAll', selfValue: 6 }
-      },
-      {
-        key: 's5-passive-giant',
-        label: '패시브: 거대화 (속도 +15, 모든 구간이 지금 트랙으로 통일, 추월당한 상대 3초 스턴)',
-        kind: 'passive',
-        passiveEffect: { kind: 'giant', amount: 15 }
       },
       {
         key: 's5-passive-painful-life',

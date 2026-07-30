@@ -18,7 +18,7 @@ test('every drawn card belongs to a real tier and template', () => {
   }
 });
 
-const VALID_PASSIVE_EFFECT_KINDS = ['selfSpeed', 'othersSpeed', 'trackMultiplierOverride', 'giant', 'painfulLife'];
+const VALID_PASSIVE_EFFECT_KINDS = ['selfSpeedMultiplier', 'othersSpeedMultiplier', 'trackMultiplierOverride', 'painfulLife'];
 
 test('every card is either an item with an itemEffect or a passive with a passiveEffect', () => {
   for (const tier of TIERS) {

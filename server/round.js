@@ -7,7 +7,6 @@ const {
   tickEffects,
   removeSegmentEffectsFor,
   handleTrackTransition,
-  applyGiantStomps,
   tickForcedMove
 } = require('./effects');
 const {
@@ -217,7 +216,6 @@ function tickRound(round, dtSeconds) {
     }
   }
 
-  applyGiantStomps(round);
   tickEffects(round, dtSeconds);
 
   const allFinished = round.players.every((p) => p.finished);

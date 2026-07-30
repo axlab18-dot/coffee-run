@@ -93,6 +93,23 @@ h1, h2 {
   margin-top: 8px;
 }
 
+#live-rank-list {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  list-style: decimal inside;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #000000;
+  font-size: 0.8em;
+  min-width: 90px;
+}
+
+#live-rank-list li {
+  white-space: nowrap;
+}
+
 #results-overlay {
   position: absolute;
   top: 0;
